@@ -70,7 +70,7 @@ pct exec $CTID -- bash -c "python3 -m venv /opt/hausverwaltung/venv"
 pct exec $CTID -- bash -c "/opt/hausverwaltung/venv/bin/pip install psycopg2-binary"
 
 # Optional: Falls du eine seed_data.sql hast, hier importieren
-# pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/database/seed_data.sql'"
+ pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/database/seed_data.sql'"
 
 echo "--- INSTALLATION ERFOLGREICH ---"
 echo "Container ID: $CTID"
