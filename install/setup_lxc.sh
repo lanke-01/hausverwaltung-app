@@ -7,7 +7,7 @@ CTID=$(pvesh get /cluster/nextid)
 echo "--- Storage-Konfiguration ---"
 
 # Wir holen nur Storages, die 'vztmpl' (Templates) unterstützen
-TEMPLATE_STORAGES=($(pvesm status --content vztmpl | awk 'NR>1 {print $1}'))
+TEMPLATE_STORAGES=($(pvesm status --content vztmpl | awk 'NR>1 {print $1}' | grep "local"))
 # Wir holen nur Storages, die 'rootdir' (Container Disks) unterstützen
 DISK_STORAGES=($(pvesm status --content rootdir | awk 'NR>1 {print $1}'))
 
