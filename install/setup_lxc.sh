@@ -4,18 +4,40 @@
 # Hausverwaltungs-App - Automatischer LXC Installer
 # =================================================================
 
+# --- Funktion zur Storage-Auswahl ---
+select_storage() {
+    local prompt=$1
+    echo "$prompt"
+    # Holt alle Storages, die 'rootdir' (für CTs) oder 'vztmpl' (für Templates) erlauben
+    mapfile -t storages < <(pvesm status | awk 'NR>1 {print $1}')
+    
+    for i in "${!storages[@]}"; do
+        echo "$((i+1))) ${storages[$i]}"
+    done
+
+    while true; do
+        read -p "Auswahl (Zahl): " choice
+        if [[ "$choice" -gt 0 && "$choice" -le "${#storages[@]}" ]]; then
+            selected_storage="${storages[$((choice-1))]}"
+            break
+        else
+            echo "Ungültige Auswahl, bitte erneut versuchen."
+        fi
+    done
+    echo "$selected_storage"
+}
+
 # 1. Nächste freie ID finden
 CTID=$(pvesh get /cluster/nextid)
-echo "--- Verfügbare Storages auf diesem Knoten: ---"
-pvesm status
 
-# 2. Benutzereingaben
+# 2. Abfragen mit Auswahlmenü
+echo "--- Storage-Konfiguration ---"
+STORAGE=$(select_storage "Wähle den Storage für das TEMPLATE (z.B. local):")
+echo "Gewählt: $STORAGE"
 echo ""
-echo "--- Installation startet für Container ID: $CTID ---"
-echo -n "Storage für Template (z.B. local): "
-read STORAGE
-echo -n "Storage für Container-Disk (z.B. local-lvm): "
-read CT_STORAGE
+CT_STORAGE=$(select_storage "Wähle den Storage für die CONTAINER-DISK (z.B. local-lvm):")
+echo "Gewählt: $CT_STORAGE"
+echo ""
 echo -n "Root-Passwort für den neuen LXC: "
 read -s PASSWORD
 echo ""
