@@ -3,32 +3,33 @@
 # 1. Nächste freie ID finden
 CTID=$(pvesh get /cluster/nextid)
 
-# --- STORAGE AUSWAHL LOGIK ---
 echo "--- Storage-Konfiguration ---"
 
-# Wir holen die Namen der aktiven Storages in ein Array
-mapfile -t STORAGE_LIST < <(pvesm status | awk 'NR>1 {print $1}')
+# Wir holen die Namen der aktiven Storages in eine Liste
+STORAGE_LIST=($(pvesm status | awk 'NR>1 {print $1}'))
 
 echo "Wähle den Storage für das TEMPLATE:"
+# Das PS3 ist der Prompt, der bei 'select' angezeigt wird
+PS3="Gib die Nummer ein (1-${#STORAGE_LIST[@]}): "
 select TEMPLATE_STRG in "${STORAGE_LIST[@]}"; do
     if [ -n "$TEMPLATE_STRG" ]; then
         STORAGE=$TEMPLATE_STRG
-        echo "Ausgewählt: $STORAGE"
+        echo "Gewählt für Template: $STORAGE"
         break
     else
-        echo "Ungültige Auswahl, bitte Zahl eingeben."
+        echo "Ungültige Auswahl."
     fi
 done
 
 echo ""
-echo "Wähle den Storage für die CONTAINER-DISK:"
+echo "Wähle den Storage für die DISK:"
 select DISK_STRG in "${STORAGE_LIST[@]}"; do
     if [ -n "$DISK_STRG" ]; then
         CT_STORAGE=$DISK_STRG
-        echo "Ausgewählt: $CT_STORAGE"
+        echo "Gewählt für Disk: $CT_STORAGE"
         break
     else
-        echo "Ungültige Auswahl, bitte Zahl eingeben."
+        echo "Ungültige Auswahl."
     fi
 done
 
