@@ -4,35 +4,18 @@
 # Hausverwaltungs-App - Automatischer LXC Installer (v2.0)
 # =================================================================
 
-# 1. Nächste freie ID finden
-CTID=$(pvesh get /cluster/nextid)
+echo "--- Verfügbare Storages auf diesem Knoten: ---"
+pvesm status
 
-echo "--- Storage-Konfiguration ---"
-
-# Funktion zur Auswahl des Storages
-get_storage() {
-    local storages=($(pvesm status | awk 'NR>1 {print $1}'))
-    PS3="Bitte Zahl eingeben: "
-    select opt in "${storages[@]}"; do
-        if [ -n "$opt" ]; then
-            echo "$opt"
-            break
-        else
-            echo "Ungültige Auswahl."
-        fi
-    done
-}
-
-echo "Wähle den Storage für das TEMPLATE (z.B. local):"
-STORAGE=$(get_storage)
-echo "Ausgewählt: $STORAGE"
 echo ""
+echo "Bitte gib den Namen des Storages für das TEMPLATE ein (z.B. local):"
+read -p "Name: " STORAGE
 
-echo "Wähle den Storage für die CONTAINER-DISK (z.B. local-lvm):"
-CT_STORAGE=$(get_storage)
-echo "Ausgewählt: $CT_STORAGE"
 echo ""
+echo "Bitte gib den Namen des Storages für die DISK ein (z.B. local-lvm):"
+read -p "Name: " CT_STORAGE
 
+echo ""
 echo -n "Root-Passwort für den neuen LXC: "
 read -s PASSWORD
 echo ""
