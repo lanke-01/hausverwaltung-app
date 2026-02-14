@@ -25,38 +25,53 @@ if [ -z "$TEMPLATE_NAME" ]; then
     exit 1
 fi
 
+# 4. Download & Erstellen
 echo "Nutze Template: $TEMPLATE_NAME"
-
-# 4. Download
-echo "--- Lade Template herunter ---"
 pveam download $STORAGE $TEMPLATE_NAME
 
-# 5. Container erstellen
 echo "--- Erstelle Container $CTID ---"
 pct create $CTID $STORAGE:vztmpl/$TEMPLATE_NAME --hostname hausverwaltung-app \
   --password "$PASSWORD" --storage $CT_STORAGE \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp --unprivileged 1 --features nesting=1
 
-# 6. Aufräumen
+# 5. Aufräumen Template
 TEMPLATE_PATH=$(pvesm path $STORAGE:vztmpl/$TEMPLATE_NAME)
-echo "--- Lösche Template-Datei: $TEMPLATE_PATH ---"
 rm $TEMPLATE_PATH
 
-# 7. Start und Einrichtung
+# 6. Start
 pct start $CTID
-echo "Warte auf Boot-Vorgang (20s)..."
-sleep 20
+echo "Warte auf Boot-Vorgang und Netzwerk (30s)..."
+sleep 30
 
-echo "--- Installiere Software im Container ---"
-# Fix: Wir erzwingen eine kurze Pause, damit das Netzwerk im CT sicher da ist
-pct exec $CTID -- bash -c "apt update && apt install -y postgresql git python3 python3-pip python3-venv"
+# 7. Software-Installation
+echo "--- Installiere System-Software ---"
+pct exec $CTID -- bash -c "apt update && apt install -y postgresql git python3 python3-pip python3-venv libpq-dev"
 
+# 8. GitHub & Datenbank Setup
 echo -n "GitHub-Benutzername: "
 read GITHUB_USER
+echo -n "GitHub Personal Access Token (PAT): "
+read -s GITHUB_TOKEN
+echo ""
 
+echo "--- Klone Repository und richte Datenbank ein ---"
 pct exec $CTID -- bash -c "su - postgres -c 'psql -c \"CREATE DATABASE hausverwaltung;\"'"
-pct exec $CTID -- bash -c "git clone https://github.com/$GITHUB_USER/hausverwaltung-app.git /opt/hausverwaltung"
+# Klonen mit Token für reibungslosen Ablauf
+pct exec $CTID -- bash -c "git clone https://$GITHUB_USER:$GITHUB_TOKEN@github.com/$GITHUB_USER/hausverwaltung-app.git /opt/hausverwaltung"
+
+# 9. Automatisierte Konfiguration (Schema & Python)
+echo "--- Führe automatisierte Konfiguration aus ---"
+
+# Datenbank-Tabellen anlegen
 pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/database/init_schema.sql'"
+
+# Python venv und Abhängigkeiten
+pct exec $CTID -- bash -c "python3 -m venv /opt/hausverwaltung/venv"
+pct exec $CTID -- bash -c "/opt/hausverwaltung/venv/bin/pip install psycopg2-binary"
+
+# Optional: Falls du eine seed_data.sql hast, hier importieren
+# pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/database/seed_data.sql'"
 
 echo "--- INSTALLATION ERFOLGREICH ---"
 echo "Container ID: $CTID"
+echo "Hostname: hausverwaltung-app"
