@@ -34,6 +34,47 @@ if conn:
             conn.commit()
             st.success("Einstellungen erfolgreich gespeichert!")
             st.rerun()
+            
+       #---------------------------------
+       st.divider()
+st.subheader("💾 Datensicherung")
+st.write("Erstellen Sie hier manuell eine Sicherungskopie der Datenbank.")
+
+if st.button("Backup jetzt erstellen"):
+    try:
+        # Pfad zum Skript (den haben wir im setup_lxc festgelegt)
+        backup_script = "/opt/hausverwaltung/install/backup_db.sh"
+        
+        if os.path.exists(backup_script):
+            # Skript ausführen und Ausgabe abfangen
+            result = subprocess.run([backup_script], capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                st.success(f"Backup erfolgreich erstellt!")
+                st.info(f"Details: {result.stdout}")
+            else:
+                st.error(f"Fehler beim Backup: {result.stderr}")
+        else:
+            st.error("Backup-Skript nicht gefunden! Bitte prüfen Sie den Pfad /opt/hausverwaltung/install/backup_db.sh")
+            
+    except Exception as e:
+        st.error(f"Ein unerwarteter Fehler ist aufgetreten: {e}")
+
+# Optionale Liste der vorhandenen Backups anzeigen
+if st.checkbox("Vorhandene Backups anzeigen"):
+    backup_dir = "/opt/hausverwaltung/backups"
+    if os.path.exists(backup_dir):
+        files = os.listdir(backup_dir)
+        files.sort(reverse=True) # Neueste zuerst
+        if files:
+            for f in files:
+                st.text(f"📄 {f}")
+        else:
+            st.write("Noch keine Backups vorhanden.")
+            
+            
+            
+            
     conn.close()
 else:
     st.error("Keine Datenbankverbindung möglich. Bitte prüfe die Datei '.env' und die PostgreSQL-Rechte.")
