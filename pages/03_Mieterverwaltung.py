@@ -3,8 +3,9 @@ import pandas as pd
 from datetime import datetime
 from database import get_conn
 
+# --- SEITEN-KONFIGURATION ---
 st.set_page_config(page_title="Mieterverwaltung", layout="wide")
-st.title("👥 Mieterverwaltung (Erweitert)")
+st.title("👥 Mieterverwaltung")
 
 conn = get_conn()
 
@@ -12,11 +13,12 @@ if conn:
     cur = conn.cursor()
 
     # --- DATENBANK-STRUKTUR AUTOMATISCH ERWEITERN ---
-    # Wir stellen sicher, dass die Tabelle 'tenants' alle benötigten Felder hat
+    # Stellt sicher, dass alle für die Abrechnung wichtigen Spalten existieren
     try:
         cur.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS area NUMERIC(10,2) DEFAULT 0.00")
         cur.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS rent NUMERIC(10,2) DEFAULT 0.00")
         cur.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS utilities NUMERIC(10,2) DEFAULT 0.00")
+        cur.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS occupants INTEGER DEFAULT 1")
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -26,8 +28,8 @@ if conn:
     st.subheader("Aktuelle Mieterliste")
     df_tenants = pd.read_sql("""
         SELECT t.id, t.first_name as Vorname, t.last_name as Nachname, 
-               a.unit_name as Wohnung, t.area as "m²", t.rent as Kaltmiete, 
-               t.utilities as Vorauszahlung, t.moved_in as Einzug
+               a.unit_name as Wohnung, t.area as "m²", t.occupants as Personen,
+               t.rent as Kaltmiete, t.utilities as Vorauszahlung, t.moved_in as Einzug
         FROM tenants t 
         LEFT JOIN apartments a ON t.apartment_id = a.id
         WHERE t.moved_out IS NULL
@@ -43,6 +45,7 @@ if conn:
 
     # --- BEREICH 1: NEUER EINZUG ---
     with st.expander("➕ Neuer Mieter / Einzug"):
+        # Nur Wohnungen anzeigen, die aktuell nicht belegt sind
         cur.execute("""
             SELECT id, unit_name FROM apartments 
             WHERE id NOT IN (SELECT apartment_id FROM tenants WHERE moved_out IS NULL)
@@ -55,7 +58,7 @@ if conn:
                 with col1:
                     fn = st.text_input("Vorname")
                     ln = st.text_input("Nachname")
-                    occ = st.number_input("Anzahl Personen", min_value=1, value=1)
+                    occ = st.number_input("Anzahl Personen", min_value=1, value=1, step=1)
                     area = st.number_input("Wohnfläche (m²)", min_value=0.0, step=0.01)
                 with col2:
                     apt_name = st.selectbox("Wohnung wählen", options=list(free_apts.keys()))
@@ -77,41 +80,50 @@ if conn:
     st.divider()
 
     # --- BEREICH 2: BEARBEITEN & DATEN NACHPFLEGEN ---
-    st.subheader("🛠️ Mieterdaten bearbeiten")
-    cur.execute("SELECT id, first_name || ' ' || last_name FROM tenants WHERE moved_out IS NULL")
+    st.subheader("📝 Mieterdaten bearbeiten")
+    cur.execute("SELECT id, first_name || ' ' || last_name FROM tenants WHERE moved_out IS NULL ORDER BY last_name")
     active_tenants = {name: tid for tid, name in cur.fetchall()}
 
     if active_tenants:
-        t_sel = st.selectbox("Mieter zum Bearbeiten wählen", options=["-- Bitte wählen --"] + list(active_tenants.keys()))
+        t_edit_sel = st.selectbox("Mieter zum Bearbeiten wählen", options=["-- Bitte wählen --"] + list(active_tenants.keys()))
         
-        if t_sel != "-- Bitte wählen --":
-            tid = active_tenants[t_sel]
-            cur.execute("SELECT area, rent, utilities, moved_in FROM tenants WHERE id = %s", (tid,))
-            t_data = cur.fetchone()
+        if t_edit_sel != "-- Bitte wählen --":
+            t_edit_id = active_tenants[t_edit_sel]
+            
+            # Aktuelle Daten des Mieters aus der DB laden
+            cur.execute("SELECT area, occupants, utilities, rent FROM tenants WHERE id = %s", (t_edit_id,))
+            current_data = cur.fetchone()
 
-            with st.form(f"edit_form_{tid}"):
-                st.write(f"Daten für **{t_sel}** aktualisieren:")
-                c1, c2, c3 = st.columns(3)
-                u_area = c1.number_input("Fläche (m²)", value=float(t_data[0] or 0.0), step=0.01)
-                u_rent = c2.number_input("Kaltmiete (€)", value=float(t_data[1] or 0.0), step=0.01)
-                u_utils = c3.number_input("Vorauszahlung (€)", value=float(t_data[2] or 0.0), step=0.01)
+            with st.form(f"edit_form_{t_edit_id}"):
+                st.info(f"Daten für **{t_edit_sel}** anpassen:")
+                c1, c2, c3, c4 = st.columns(4)
+                
+                u_area = c1.number_input("Fläche (m²)", value=float(current_data[0] or 0.0), step=0.01)
+                u_occ = c2.number_input("Personen", value=int(current_data[1] or 1), step=1)
+                u_utils = c3.number_input("NK-Voraus (€)", value=float(current_data[2] or 0.0), step=0.01)
+                u_rent = c4.number_input("Kaltmiete (€)", value=float(current_data[3] or 0.0), step=0.01)
                 
                 if st.form_submit_button("Änderungen speichern"):
                     cur.execute("""
-                        UPDATE tenants SET area = %s, rent = %s, utilities = %s WHERE id = %s
-                    """, (u_area, u_rent, u_utils, tid))
+                        UPDATE tenants 
+                        SET area = %s, occupants = %s, utilities = %s, rent = %s 
+                        WHERE id = %s
+                    """, (u_area, u_occ, u_utils, u_rent, t_edit_id))
                     conn.commit()
-                    st.success("Daten wurden aktualisiert.")
+                    st.success(f"Änderungen für {t_edit_sel} erfolgreich gespeichert!")
                     st.rerun()
 
-            # Auszug/Löschen (dein alter Code)
+            # Auszug registrieren
             st.write("---")
-            if st.button("Auszug registrieren"):
-                # Hier könnte ein Datum-Popup kommen, für den schnellen Test setzen wir heute:
-                cur.execute("UPDATE tenants SET moved_out = CURRENT_DATE WHERE id = %s", (tid,))
+            if st.button("🔴 Mieter-Auszug (Vertrag beenden)"):
+                cur.execute("UPDATE tenants SET moved_out = CURRENT_DATE WHERE id = %s", (t_edit_id,))
                 conn.commit()
+                st.success(f"Auszug für {t_edit_sel} wurde zum heutigen Datum registriert.")
                 st.rerun()
+    else:
+        st.info("Keine aktiven Mieter zum Bearbeiten vorhanden.")
 
+    cur.close()
     conn.close()
 else:
     st.error("Datenbankverbindung fehlgeschlagen.")
