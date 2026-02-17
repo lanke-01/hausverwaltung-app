@@ -49,7 +49,7 @@ sleep 20
 echo "--- Installiere System-Software ---"
 pct exec $CTID -- bash -c "apt update && apt install -y postgresql git python3 python3-pip python3-venv libpq-dev locales"
 
-# 7. UTF-8 Locales (Gegen den ASCII Fehler)
+# 7. UTF-8 Locales konfigurieren (Wichtig gegen ASCII-Fehler)
 echo "--- Konfiguriere UTF-8 ---"
 pct exec $CTID -- bash -c "sed -i '/de_DE.UTF-8/s/^# //g' /etc/locale.gen && locale-gen"
 pct exec $CTID -- bash -c "echo 'LANG=de_DE.UTF-8' > /etc/default/locale"
@@ -61,38 +61,42 @@ REPO_NAME="hausverwaltung-app"
 echo "--- Klone Repository ---"
 pct exec $CTID -- bash -c "git clone https://github.com/$GITHUB_USER/$REPO_NAME.git /opt/hausverwaltung"
 
-# 9. Sonderzeichen-Bereinigung
+# 9. Sonderzeichen-Bereinigung im Code (Euro-Zeichen & Quadratmeter)
 echo "--- Bereinige Sonderzeichen (€/m²) ---"
 pct exec $CTID -- bash -c "find /opt/hausverwaltung -name '*.py' -exec sed -i 's/€/Euro/g' {} +"
 pct exec $CTID -- bash -c "find /opt/hausverwaltung -name '*.py' -exec sed -i 's/m²/qm/g' {} +"
 
-# 10. Datenbank-Konfiguration (DER KRITISCHE TEIL)
-echo "--- Konfiguriere PostgreSQL Rechte ---"
+# 10. Datenbank-Konfiguration (Rechte & Erstellung)
+echo "--- Konfiguriere PostgreSQL ---"
 pct exec $CTID -- bash -c "
 sed -i \"s/local   all             postgres                                peer/local   all             postgres                                trust/\" /etc/postgresql/15/main/pg_hba.conf
 sed -i \"s/host    all             all             127.0.0.1\/32            scram-sha-256/host    all             all             127.0.0.1\/32            trust/\" /etc/postgresql/15/main/pg_hba.conf
 systemctl restart postgresql
 "
 
-# Warten bis Postgres wirklich da ist
-echo "Warte auf Datenbank-Bereitschaft..."
+# Warten bis Postgres bereit ist
 pct exec $CTID -- bash -c "until pg_isready; do sleep 1; done"
 
-# Datenbank erstellen und Schema laden
-echo "--- Erstelle Tabellen ---"
+# Datenbank erstellen und Tabellen laden
+echo "--- Initialisiere Datenbank-Tabellen ---"
 pct exec $CTID -- bash -c "su - postgres -c 'psql -c \"CREATE DATABASE hausverwaltung;\"'"
 pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/install/init_db.sql' || su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/database/init_schema.sql'"
 
-# 11. .env Datei absolut sicher erstellen
+# FIX: Dummy-Daten einfügen, damit '07_Einstellungen.py' nicht abstürzt
+echo "--- Erstelle Standard-Vermieterdaten ---"
+pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -c \\\"INSERT INTO landlord_settings (name, street, city, iban, bank_name) SELECT 'Bitte Name angeben', 'Musterstraße 1', '12345 Stadt', 'DE00...', 'Musterbank' WHERE NOT EXISTS (SELECT 1 FROM landlord_settings);\\\"\""
+
+# 11. .env Datei erstellen
 echo "--- Erstelle .env ---"
 pct exec $CTID -- bash -c "printf \"DB_NAME=hausverwaltung\nDB_USER=postgres\nDB_PASS=\nDB_HOST=127.0.0.1\nDB_PORT=5432\n\" > /opt/hausverwaltung/.env"
 
 # 12. Python Venv und Pakete
 echo "--- Installiere Python Module ---"
 pct exec $CTID -- bash -c "python3 -m venv /opt/hausverwaltung/venv"
+pct exec $CTID -- bash -c "/opt/hausverwaltung/venv/bin/pip install --upgrade pip"
 pct exec $CTID -- bash -c "/opt/hausverwaltung/venv/bin/pip install streamlit pandas psycopg2-binary fpdf python-dotenv"
 
-# 13. Systemd Service
+# 13. Systemd Service für Autostart
 echo "--- Erstelle Autostart-Dienst ---"
 pct exec $CTID -- bash -c "cat <<EOF > /etc/systemd/system/hausverwaltung.service
 [Unit]
@@ -115,10 +119,15 @@ EOF"
 
 pct exec $CTID -- bash -c "systemctl daemon-reload && systemctl enable hausverwaltung.service && systemctl restart hausverwaltung.service"
 
-# 14. Abschluss
+# 14. Abschlussmeldung
 IP_ADDRESS=$(pct exec $CTID -- hostname -I | awk '{print $1}')
 echo ""
 echo "================================================================="
-echo " 🎉 INSTALLATION ABGESCHLOSSEN!"
+echo " 🎉 INSTALLATION KOMPLETT ABGESCHLOSSEN!"
+echo "================================================================="
+echo " Das Dashboard ist nun unter folgender Adresse erreichbar:"
 echo " URL: http://$IP_ADDRESS:8501"
+echo "================================================================="
+echo " Hinweis: Die Vermieter-Daten wurden mit Dummy-Werten gefüllt,"
+echo " um den Fehler in '07_Einstellungen.py' zu beheben."
 echo "================================================================="
