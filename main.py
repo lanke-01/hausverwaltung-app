@@ -29,7 +29,7 @@ if conn:
         active_tenants = cur.fetchone()[0] or 0
         
         with col1:
-            st.metric("Gesamtfläche", f"{total_sqm:.2f} m²")
+            st.metric("Gesamtfläche", f"{total_sqm:.2f} qm")
         with col2:
             st.metric("Wohneinheiten", total_apts)
         with col3:

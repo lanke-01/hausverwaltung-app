@@ -111,7 +111,7 @@ if conn:
                     c1, c2 = st.columns(2)
                     with c1:
                         st.write(f"**Wohnung:** {t_apt}")
-                        st.write(f"**Fläche:** {t_size} m²")
+                        st.write(f"**Fläche:** {t_size} qm")
                         st.write(f"**Einzug:** {t_in}")
                     with c2:
                         st.write(f"**Kaltmiete:** {t_rent:.2f} Euro")

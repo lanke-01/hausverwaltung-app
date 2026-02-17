@@ -40,7 +40,7 @@ if conn:
                         col1, col2 = st.columns(2)
                         with col1:
                             new_name = st.text_input("Bezeichnung", value=current_data[0])
-                            new_size = st.number_input("Fläche (m²)", value=float(current_data[1]), step=0.1)
+                            new_size = st.number_input("Fläche (qm)", value=float(current_data[1]), step=0.1)
                         with col2:
                             new_rent = st.number_input("Kaltmiete (Euro)", value=float(current_data[2]), step=1.0)
                             new_prepay = st.number_input("NK-Vorauszahlung (Euro)", value=float(current_data[3]), step=1.0)
@@ -82,7 +82,7 @@ if conn:
                 c1, c2 = st.columns(2)
                 with c1:
                     n_name = st.text_input("Bezeichnung (z.B. Wohnung 5)")
-                    n_size = st.number_input("Fläche (m²)", min_value=0.0, step=0.1)
+                    n_size = st.number_input("Fläche (qm)", min_value=0.0, step=0.1)
                 with c2:
                     n_rent = st.number_input("Kaltmiete (Euro)", min_value=0.0, step=1.0)
                     n_prepay = st.number_input("NK-Vorauszahlung (Euro)", min_value=0.0, step=1.0)
@@ -104,7 +104,7 @@ if conn:
         df_apts = pd.read_sql("""
             SELECT id as "ID", 
                    unit_name as "Einheit", 
-                   size_sqm as "m²", 
+                   size_sqm as "qm", 
                    base_rent as "Kalt (Euro)", 
                    service_charge_propayment as "NK-Vorschuss (Euro)"
             FROM apartments 
@@ -115,8 +115,8 @@ if conn:
             st.dataframe(df_apts, use_container_width=True, hide_index=True)
             
             # Bonus: Haus-Gesamtwert zur Kontrolle
-            total_sqm = df_apts["m²"].sum()
-            st.write(f"**Gesamtfläche des Hauses:** {total_sqm:.2f} m²")
+            total_sqm = df_apts["qm"].sum()
+            st.write(f"**Gesamtfläche des Hauses:** {total_sqm:.2f} qm")
         else:
             st.info("Die Datenbank ist leer. Bitte lege eine Wohnung an.")
 

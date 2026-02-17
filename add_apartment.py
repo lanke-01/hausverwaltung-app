@@ -3,7 +3,7 @@ import psycopg2
 def add_new_apartment():
     print("--- Neue Wohnung anlegen ---")
     name = input("Bezeichnung (z.B. OG rechts): ")
-    sqm = float(input("Größe in m²: "))
+    sqm = float(input("Größe in qm: "))
     rent = float(input("Kaltmiete in Euro: "))
 
     try:

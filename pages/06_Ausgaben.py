@@ -6,7 +6,7 @@ from database import get_conn  # WICHTIG: Nutzt deine neue zentrale Verbindung
 st.set_page_config(page_title="Haus-Ausgaben erfassen", layout="wide")
 
 st.title("💸 Haus-Ausgaben (Gesamtkosten)")
-st.info("Tragen Sie hier die Rechnungen für das gesamte Haus ein. Diese werden basierend auf dem Schlüssel (m², Personen oder Einheiten) verteilt.")
+st.info("Tragen Sie hier die Rechnungen für das gesamte Haus ein. Diese werden basierend auf dem Schlüssel (qm, Personen oder Einheiten) verteilt.")
 
 # Verbindung herstellen
 conn = get_conn()
@@ -39,7 +39,7 @@ if conn:
                     e_year = st.selectbox("Abrechnungsjahr", [2024, 2025, 2026], index=2)
                     # Schlüssel-Mapping für die Datenbank (Anzeigename, DB-Wert)
                     keys = {
-                        "m² Wohnfläche (z.B. Grundsteuer)": "area",
+                        "qm Wohnfläche (z.B. Grundsteuer)": "area",
                         "Personen / Personentage (z.B. Wasser)": "persons",
                         "Wohneinheiten (z.B. Schornstein)": "unit",
                         "Direkt (1/1)": "direct"
