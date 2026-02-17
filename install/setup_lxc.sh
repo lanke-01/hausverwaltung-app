@@ -97,3 +97,17 @@ echo "Container ID: $CTID"
 echo "--- Richte tägliche Backups ein ---"
 pct exec $CTID -- bash -c "mkdir -p /backups"
 pct exec $CTID -- bash -c "(crontab -l 2>/dev/null; echo '0 3 * * * pg_dump -U postgres hausverwaltung > /backups/db_backup_\$(date +\%F).sql') | crontab -"
+
+# Am Ende von setup_lxc.sh einfügen:
+IP_ADDRESS=$(pct exec $CTID -- hostname -I | awk '{print $1}')
+
+echo ""
+echo "================================================================="
+echo " 🎉 INSTALLATION ABGESCHLOSSEN!"
+echo "================================================================="
+echo " Greife auf die App zu unter:"
+echo " URL:  http://$IP_ADDRESS:8501"
+echo "================================================================="
+echo " Falls die Seite nicht lädt, prüfe den Status mit:"
+echo " pct exec $CTID -- systemctl status hausverwaltung"
+echo "================================================================="
