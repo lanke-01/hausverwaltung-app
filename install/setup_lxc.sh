@@ -92,3 +92,8 @@ echo "================================================================="
 echo "   INSTALLATION ERFOLGREICH ABGESCHLOSSEN!"
 echo "================================================================="
 echo "Container ID: $CTID"
+
+# 11. BACKUP-PLAN (Jede Nacht um 03:00 Uhr)
+echo "--- Richte tägliche Backups ein ---"
+pct exec $CTID -- bash -c "mkdir -p /backups"
+pct exec $CTID -- bash -c "(crontab -l 2>/dev/null; echo '0 3 * * * pg_dump -U postgres hausverwaltung > /backups/db_backup_\$(date +\%F).sql') | crontab -"
