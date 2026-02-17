@@ -60,7 +60,7 @@ def generate_nebenkosten_pdf(landlord_data, mieter_name, wohnung, zeitraum, tage
     h_pt = h_stats['pers'] * 365
     row("Ihre Personentage:", m_pt, "Gesamt-Personentage:", h_pt)
     
-    pdf.ln(10)
+    pdf.ln(20)
 
     # --- KOSTENTABELLE (OPTIMIERTE BREITEN: 55+30+35+40+30 = 190mm) ---
     pdf.set_font('Arial', 'B', 9)
