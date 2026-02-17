@@ -3,101 +3,61 @@
 # 1. Nächste freie ID finden
 CTID=$(pvesh get /cluster/nextid)
 
-# --- STORAGE AUSWAHL LOGIK ---
-echo "--- Storage-Konfiguration ---"
+# --- STORAGE AUSWAHL ---
 TEMPLATE_STORAGES=($(pvesm status --content vztmpl | awk 'NR>1 {print $1}' | grep "local"))
 DISK_STORAGES=($(pvesm status --content rootdir | awk 'NR>1 {print $1}'))
 
-echo "Wähle den Storage für das TEMPLATE:"
-PS3="Nummer wählen: "
-select TEMPLATE_STRG in "${TEMPLATE_STORAGES[@]}"; do
-    [ -n "$TEMPLATE_STRG" ] && STORAGE=$TEMPLATE_STRG && break
-done
+echo "Wähle Storage für TEMPLATE:"
+select TEMPLATE_STRG in "${TEMPLATE_STORAGES[@]}"; do [ -n "$TEMPLATE_STRG" ] && STORAGE=$TEMPLATE_STRG && break; done
+echo "Wähle Storage für DISK:"
+select DISK_STRG in "${DISK_STORAGES[@]}"; do [ -n "$DISK_STRG" ] && CT_STORAGE=$DISK_STRG && break; done
 
-echo "Wähle den Storage für die DISK:"
-select DISK_STRG in "${DISK_STORAGES[@]}"; do
-    [ -n "$DISK_STRG" ] && CT_STORAGE=$DISK_STRG && break
-done
-
-echo -n "Root-Passwort für den neuen LXC: "
+echo -n "Root-Passwort: "
 read -s PASSWORD
 echo ""
 
-# 3. Debian 12 Template herunterladen
-echo "--- Lade Debian Template herunter ---"
+# 3. Container Erstellung
 pveam update
 TEMPLATE_NAME=$(pveam available --section system | grep "debian-12" | awk '{print $2}' | head -n 1)
 pveam download $STORAGE $TEMPLATE_NAME
 
-# 4. Container Erstellung
-echo "--- Erstelle Container $CTID ---"
 pct create $CTID $STORAGE:vztmpl/$TEMPLATE_NAME --hostname hausverwaltung-app \
   --password "$PASSWORD" --storage $CT_STORAGE \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp --unprivileged 1 --features nesting=1
 
-if [ $? -ne 0 ]; then
-    echo "FEHLER beim Erstellen des Containers!"
-    exit 1
-fi
-
-# 5. Startvorgang
 pct start $CTID
-echo "Warte auf Netzwerk (20s)..."
+echo "Warte auf Netzwerk..."
 sleep 20
 
-# 6. Software-Installation
-echo "--- Installiere System-Software ---"
+# 4. Installation & UTF-8 Locales (IM CONTAINER)
 pct exec $CTID -- bash -c "apt update && apt install -y postgresql git python3 python3-pip python3-venv libpq-dev locales"
+pct exec $CTID -- bash -c "echo 'de_DE.UTF-8 UTF-8' > /etc/locale.gen && locale-gen"
+pct exec $CTID -- bash -c "update-locale LANG=de_DE.UTF-8 LC_ALL=de_DE.UTF-8"
 
-# 7. UTF-8 Locales konfigurieren (Wichtig gegen ASCII-Fehler)
-echo "--- Konfiguriere UTF-8 ---"
-pct exec $CTID -- bash -c "sed -i '/de_DE.UTF-8/s/^# //g' /etc/locale.gen && locale-gen"
-pct exec $CTID -- bash -c "echo 'LANG=de_DE.UTF-8' > /etc/default/locale"
-pct exec $CTID -- bash -c "echo 'LC_ALL=de_DE.UTF-8' >> /etc/default/locale"
+# 5. GitHub Projekt laden
+pct exec $CTID -- bash -c "git clone https://github.com/lanke-01/hausverwaltung-app.git /opt/hausverwaltung"
 
-# 8. GitHub Projekt laden
-GITHUB_USER="lanke-01"
-REPO_NAME="hausverwaltung-app"
-echo "--- Klone Repository ---"
-pct exec $CTID -- bash -c "git clone https://github.com/$GITHUB_USER/$REPO_NAME.git /opt/hausverwaltung"
-
-# 9. Sonderzeichen-Bereinigung im Code (Euro-Zeichen & Quadratmeter)
-echo "--- Bereinige Sonderzeichen (€/m²) ---"
+# 6. Sonderzeichen im Code bereinigen (Falls im Repo noch € oder m² sind)
 pct exec $CTID -- bash -c "find /opt/hausverwaltung -name '*.py' -exec sed -i 's/€/Euro/g' {} +"
 pct exec $CTID -- bash -c "find /opt/hausverwaltung -name '*.py' -exec sed -i 's/m²/qm/g' {} +"
 
-# 10. Datenbank-Konfiguration (Rechte & Erstellung)
-echo "--- Konfiguriere PostgreSQL ---"
+# 7. Datenbank & Rechte (Trust Modus für 127.0.0.1)
 pct exec $CTID -- bash -c "
-sed -i \"s/local   all             postgres                                peer/local   all             postgres                                trust/\" /etc/postgresql/15/main/pg_hba.conf
-sed -i \"s/host    all             all             127.0.0.1\/32            scram-sha-256/host    all             all             127.0.0.1\/32            trust/\" /etc/postgresql/15/main/pg_hba.conf
+sed -i 's/local   all             postgres                                peer/local   all             postgres                                trust/' /etc/postgresql/15/main/pg_hba.conf
+sed -i 's/host    all             all             127.0.0.1\/32            scram-sha-256/host    all             all             127.0.0.1\/32            trust/' /etc/postgresql/15/main/pg_hba.conf
 systemctl restart postgresql
 "
 
-# Warten bis Postgres bereit ist
-pct exec $CTID -- bash -c "until pg_isready; do sleep 1; done"
-
-# Datenbank erstellen und Tabellen laden
-echo "--- Initialisiere Datenbank-Tabellen ---"
+# 8. DB Initialisierung
 pct exec $CTID -- bash -c "su - postgres -c 'psql -c \"CREATE DATABASE hausverwaltung;\"'"
-pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/install/init_db.sql' || su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/database/init_schema.sql'"
+pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/install/init_db.sql' || true"
+pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -c \\\"INSERT INTO landlord_settings (id, name) SELECT 1, 'Bitte Daten eintragen' WHERE NOT EXISTS (SELECT 1 FROM landlord_settings);\\\"\""
 
-# FIX: Dummy-Daten einfügen, damit '07_Einstellungen.py' nicht abstürzt
-echo "--- Erstelle Standard-Vermieterdaten ---"
-pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -c \\\"INSERT INTO landlord_settings (name, street, city, iban, bank_name) SELECT 'Bitte Name angeben', 'Musterstraße 1', '12345 Stadt', 'DE00...', 'Musterbank' WHERE NOT EXISTS (SELECT 1 FROM landlord_settings);\\\"\""
+# 9. .env & Python Setup
+pct exec $CTID -- bash -c "printf 'DB_NAME=hausverwaltung\nDB_USER=postgres\nDB_PASS=\nDB_HOST=127.0.0.1\nDB_PORT=5432\n' > /opt/hausverwaltung/.env"
+pct exec $CTID -- bash -c "python3 -m venv /opt/hausverwaltung/venv && /opt/hausverwaltung/venv/bin/pip install streamlit pandas psycopg2-binary fpdf python-dotenv"
 
-# 11. .env Datei erstellen
-echo "--- Erstelle .env ---"
-pct exec $CTID -- bash -c "printf \"DB_NAME=hausverwaltung\nDB_USER=postgres\nDB_PASS=\nDB_HOST=127.0.0.1\nDB_PORT=5432\n\" > /opt/hausverwaltung/.env"
-
-# 12. Python Venv und Pakete
-echo "--- Installiere Python Module ---"
-pct exec $CTID -- bash -c "python3 -m venv /opt/hausverwaltung/venv"
-pct exec $CTID -- bash -c "/opt/hausverwaltung/venv/bin/pip install --upgrade pip"
-pct exec $CTID -- bash -c "/opt/hausverwaltung/venv/bin/pip install streamlit pandas psycopg2-binary fpdf python-dotenv"
-
-# 13. Systemd Service für Autostart
-echo "--- Erstelle Autostart-Dienst ---"
+# 10. Systemd Service (mit UTF-8 Umgebung)
 pct exec $CTID -- bash -c "cat <<EOF > /etc/systemd/system/hausverwaltung.service
 [Unit]
 Description=Streamlit Hausverwaltung App
@@ -107,7 +67,7 @@ After=network.target postgresql.service
 Type=simple
 User=root
 WorkingDirectory=/opt/hausverwaltung
-Environment=PYTHONIOENCODING=utf-8
+Environment=PYTHONUTF8=1
 Environment=LANG=de_DE.UTF-8
 Environment=LC_ALL=de_DE.UTF-8
 ExecStart=/opt/hausverwaltung/venv/bin/streamlit run main.py --server.port 8501 --server.address 0.0.0.0
@@ -119,15 +79,5 @@ EOF"
 
 pct exec $CTID -- bash -c "systemctl daemon-reload && systemctl enable hausverwaltung.service && systemctl restart hausverwaltung.service"
 
-# 14. Abschlussmeldung
 IP_ADDRESS=$(pct exec $CTID -- hostname -I | awk '{print $1}')
-echo ""
-echo "================================================================="
-echo " 🎉 INSTALLATION KOMPLETT ABGESCHLOSSEN!"
-echo "================================================================="
-echo " Das Dashboard ist nun unter folgender Adresse erreichbar:"
-echo " URL: http://$IP_ADDRESS:8501"
-echo "================================================================="
-echo " Hinweis: Die Vermieter-Daten wurden mit Dummy-Werten gefüllt,"
-echo " um den Fehler in '07_Einstellungen.py' zu beheben."
-echo "================================================================="
+echo "Fertig! URL: http://$IP_ADDRESS:8501"
