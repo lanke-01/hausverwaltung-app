@@ -26,7 +26,7 @@ pct create $CTID $STORAGE:vztmpl/$TEMPLATE_NAME --hostname hausverwaltung-app \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp --unprivileged 1 --features nesting=1
 
 pct start $CTID
-echo "Warte auf Netzwerk..."
+echo "Warte auf Netzwerk (20s)..."
 sleep 20
 
 # 3. Installation & UTF-8 (IM CONTAINER)
@@ -37,21 +37,24 @@ pct exec $CTID -- bash -c "update-locale LANG=de_DE.UTF-8"
 # 4. GitHub Projekt laden
 pct exec $CTID -- bash -c "git clone https://github.com/lanke-01/hausverwaltung-app.git /opt/hausverwaltung"
 
-# 5. Datenbank & Rechte
+# 5. Datenbank & Rechte (Trust-Modus erzwingen)
 pct exec $CTID -- bash -c "
 sed -i 's/local   all             postgres                                peer/local   all             postgres                                trust/' /etc/postgresql/15/main/pg_hba.conf
+sed -i 's/host    all             all             127.0.0.1\/32            scram-sha-256/host    all             all             127.0.0.1\/32            trust/' /etc/postgresql/15/main/pg_hba.conf
 systemctl restart postgresql
 "
 
-# DB erstellen und Struktur anlegen (JETZT MIT UPDATED_AT)
+# 6. DB Initialisierung & Fix für updated_at
+pct exec $CTID -- bash -c "until pg_isready; do sleep 1; done"
 pct exec $CTID -- bash -c "su - postgres -c 'psql -c \"CREATE DATABASE hausverwaltung;\"'"
-pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -c 'CREATE TABLE IF NOT EXISTS landlord_settings (id SERIAL PRIMARY KEY, name VARCHAR(255), street VARCHAR(255), city VARCHAR(255), iban VARCHAR(50), bank_name VARCHAR(255), updated_at TIMESTAMP DEFAULT NOW()); INSERT INTO landlord_settings (id, name) SELECT 1, '\''Bitte Daten eintragen'\'' WHERE NOT EXISTS (SELECT 1 FROM landlord_settings);'\""
+# Erstellt die Tabelle direkt mit der richtigen Spalte
+pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -c 'CREATE TABLE IF NOT EXISTS landlord_settings (id SERIAL PRIMARY KEY, name VARCHAR(255), street VARCHAR(255), city VARCHAR(255), iban VARCHAR(50), bank_name VARCHAR(255), updated_at TIMESTAMP DEFAULT NOW()); INSERT INTO landlord_settings (id, name) SELECT 1, '\''Vermieter Name'\'' WHERE NOT EXISTS (SELECT 1 FROM landlord_settings);'\""
 
-# 6. .env & Python Setup
+# 7. .env & Python Setup
 pct exec $CTID -- bash -c "printf 'DB_NAME=hausverwaltung\nDB_USER=postgres\nDB_PASS=\nDB_HOST=127.0.0.1\nDB_PORT=5432\n' > /opt/hausverwaltung/.env"
 pct exec $CTID -- bash -c "python3 -m venv /opt/hausverwaltung/venv && /opt/hausverwaltung/venv/bin/pip install streamlit pandas psycopg2-binary fpdf python-dotenv"
 
-# 7. Systemd Service
+# 8. Systemd Service
 pct exec $CTID -- bash -c "cat <<EOF > /etc/systemd/system/hausverwaltung.service
 [Unit]
 Description=Streamlit Hausverwaltung App
@@ -73,4 +76,6 @@ EOF"
 pct exec $CTID -- bash -c "systemctl daemon-reload && systemctl enable hausverwaltung.service && systemctl restart hausverwaltung.service"
 
 IP_ADDRESS=$(pct exec $CTID -- hostname -I | awk '{print $1}')
-echo "URL: http://$IP_ADDRESS:8501"
+echo "================================================================="
+echo " 🎉 INSTALLATION FERTIG! URL: http://$IP_ADDRESS:8501"
+echo "================================================================="
