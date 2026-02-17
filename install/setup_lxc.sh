@@ -4,15 +4,41 @@
 CTID=$(pvesh get /cluster/nextid)
 
 # --- STORAGE AUSWAHL LOGIK ---
-TEMPLATE_STORAGES=($(pvesm status --content vztmpl | awk 'NR>1 {print $1}' | grep "local"))
+echo "--- Storage-Konfiguration ---"
+
+# Wir listen alle Storages auf, die Templates speichern können
+TEMPLATE_STORAGES=($(pvesm status --content vztmpl | awk 'NR>1 {print $1}'))
+# Wir listen alle Storages auf, die Root-Dateisysteme (Container) speichern können
 DISK_STORAGES=($(pvesm status --content rootdir | awk 'NR>1 {print $1}'))
 
-echo "Wähle Storage für TEMPLATE:"
-select TEMPLATE_STRG in "${TEMPLATE_STORAGES[@]}"; do [ -n "$TEMPLATE_STRG" ] && STORAGE=$TEMPLATE_STRG && break; done
-echo "Wähle Storage für DISK:"
-select DISK_STRG in "${DISK_STORAGES[@]}"; do [ -n "$DISK_STRG" ] && CT_STORAGE=$DISK_STRG && break; done
+# Falls keine Storages gefunden wurden, Fehlermeldung
+if [ ${#TEMPLATE_STORAGES[@]} -eq 0 ]; then
+    echo "FEHLER: Kein Storage für Templates gefunden!"
+    exit 1
+fi
 
-echo -n "Root-Passwort: "
+echo "Wähle den Storage für das TEMPLATE (wo das Debian-Image liegt):"
+PS3="Nummer wählen: "
+select TEMPLATE_STRG in "${TEMPLATE_STORAGES[@]}"; do
+    if [ -n "$TEMPLATE_STRG" ]; then
+        STORAGE=$TEMPLATE_STRG
+        break
+    else
+        echo "Ungültige Auswahl."
+    fi
+done
+
+echo "Wähle den Storage für die DISK (wo der Container installiert wird):"
+select DISK_STRG in "${DISK_STORAGES[@]}"; do
+    if [ -n "$DISK_STRG" ]; then
+        CT_STORAGE=$DISK_STRG
+        break
+    else
+        echo "Ungültige Auswahl."
+    fi
+done
+
+echo -n "Root-Passwort für den neuen LXC: "
 read -s PASSWORD
 echo ""
 
