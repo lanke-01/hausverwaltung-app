@@ -59,3 +59,12 @@ CREATE TABLE meter_readings (
     reading_value NUMERIC(15,3),
     comment TEXT
 );
+
+CREATE TABLE IF NOT EXISTS operating_expenses (
+    id SERIAL PRIMARY KEY,
+    expense_type VARCHAR(255),        -- z.B. Grundsteuer, Versicherung
+    total_amount NUMERIC(10,2),      -- Der Gesamtbetrag
+    billing_year INTEGER,            -- Das Abrechnungsjahr (z.B. 2026)
+    distribution_key VARCHAR(50),    -- 'qm', 'personen' oder 'einheit'
+    created_at TIMESTAMP DEFAULT NOW()
+);
