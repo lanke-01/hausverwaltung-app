@@ -1,4 +1,3 @@
--- Alles Vorhandene löschen für sauberen Neustart
 DROP TABLE IF EXISTS meter_readings CASCADE;
 DROP TABLE IF EXISTS meters CASCADE;
 DROP TABLE IF EXISTS payments CASCADE;
@@ -6,8 +5,15 @@ DROP TABLE IF EXISTS tenants CASCADE;
 DROP TABLE IF EXISTS apartments CASCADE;
 DROP TABLE IF EXISTS landlord_settings CASCADE;
 
--- Tabellen erstellen
-CREATE TABLE landlord_settings (id SERIAL PRIMARY KEY, name VARCHAR(255), street VARCHAR(255), city VARCHAR(255), iban VARCHAR(50), bank_name VARCHAR(255));
+CREATE TABLE landlord_settings (
+    id SERIAL PRIMARY KEY, 
+    name VARCHAR(255), 
+    street VARCHAR(255), 
+    city VARCHAR(255), 
+    iban VARCHAR(50), 
+    bank_name VARCHAR(255),
+    updated_at TIMESTAMP DEFAULT NOW() -- DIESES FELD FEHLTE!
+);
 
 CREATE TABLE apartments (
     id SERIAL PRIMARY KEY,
