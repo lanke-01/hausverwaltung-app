@@ -73,6 +73,30 @@ if st.checkbox("Vorhandene Backups anzeigen"):
             st.write("Noch keine Backups vorhanden.")
             
             
+ st.divider()
+st.subheader("🚀 Software-Update")
+st.write("Laden Sie die neueste Version direkt von GitHub.")
+
+if st.button("Jetzt auf Updates prüfen"):
+    try:
+        # 1. Git Pull ausführen
+        update_result = subprocess.run(["git", "-C", "/opt/hausverwaltung", "pull"], capture_output=True, text=True)
+        
+        if "Already up to date" in update_result.stdout:
+            st.info("Die Software ist bereits auf dem neuesten Stand.")
+        else:
+            st.success("Neue Version heruntergeladen!")
+            st.code(update_result.stdout)
+            
+            # 2. Neustart des Dienstes triggern
+            # Hinweis: Damit das klappt, braucht der User root-Rechte oder sudo ohne Passwort
+            st.warning("Starte App neu, um Änderungen zu übernehmen...")
+            subprocess.run(["systemctl", "restart", "hausverwaltung.service"])
+            
+    except Exception as e:
+        st.error(f"Fehler beim Update: {e}")
+            
+            
             
             
     conn.close()
