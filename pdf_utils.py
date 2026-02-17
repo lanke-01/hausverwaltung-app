@@ -56,7 +56,7 @@ def generate_nebenkosten_pdf(landlord_data, mieter_name, wohnung, zeitraum, tage
     # Zeile 1: Nur die Überschriften der Zeiträume
     row("Ihr Nutzungszeitraum:", "", "Abrechnungszeitraum:", "")
     
-     row("  " , "", "  " , "")
+    row("", "", "", "")
     # Zeile 2: Die tatsächlichen Daten (leicht eingerückt durch Leerzeichen)
     row("  " + zeitraum, "", "  " + zeitraum, "")
     
