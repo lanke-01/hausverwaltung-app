@@ -46,33 +46,55 @@ echo "Warte auf Netzwerk (20s)..."
 sleep 20
 
 # 6. Software-Installation
-echo "--- Installiere System-Software (Postgres, Git, Python) ---"
-pct exec $CTID -- bash -c "apt update && apt install -y postgresql git python3 python3-pip python3-venv libpq-dev"
+echo "--- Installiere System-Software (Postgres, Git, Python, Locales) ---"
+pct exec $CTID -- bash -c "apt update && apt install -y postgresql git python3 python3-pip python3-venv libpq-dev locales"
 
-# 7. GitHub Projekt laden
+# 7. UTF-8 Locales im Container konfigurieren (Wichtig gegen den ASCII-Fehler)
+echo "--- Konfiguriere Sprachumgebung (UTF-8) ---"
+pct exec $CTID -- bash -c "sed -i '/de_DE.UTF-8/s/^# //g' /etc/locale.gen && locale-gen"
+pct exec $CTID -- bash -c "echo 'LANG=de_DE.UTF-8' > /etc/default/locale"
+pct exec $CTID -- bash -c "echo 'LC_ALL=de_DE.UTF-8' >> /etc/default/locale"
+
+# 8. GitHub Projekt laden
 GITHUB_USER="lanke-01"
 REPO_NAME="hausverwaltung-app"
 echo "--- Klone Repository ---"
 pct exec $CTID -- bash -c "git clone https://github.com/$GITHUB_USER/$REPO_NAME.git /opt/hausverwaltung"
 
-# 8. Datenbank Einrichtung
+# --- AUTOMATISCHE BEREINIGUNG VON SONDERZEICHEN (€ und m²) ---
+echo "--- Bereinige Sonderzeichen im Code ---"
+pct exec $CTID -- bash -c "find /opt/hausverwaltung -name '*.py' -exec sed -i 's/€/Euro/g' {} +"
+pct exec $CTID -- bash -c "find /opt/hausverwaltung -name '*.py' -exec sed -i 's/m²/qm/g' {} +"
+
+# 9. Datenbank Einrichtung & Rechte
 echo "--- Richte Datenbank ein ---"
+# Passwortlose Verbindung erlauben (Trust)
+pct exec $CTID -- bash -c "sed -i 's/local   all             postgres                                peer/local   all             postgres                                trust/' /etc/postgresql/15/main/pg_hba.conf"
+pct exec $CTID -- bash -c "systemctl restart postgresql"
+
+# DB Erstellen und Schema laden
 pct exec $CTID -- bash -c "su - postgres -c 'psql -c \"CREATE DATABASE hausverwaltung;\"'"
-# Falls die SQL-Dateien existieren, werden sie importiert
+# Wir versuchen beide Pfade (database/ und install/), falls du die Datei verschoben hast
 pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/database/init_schema.sql'" 2>/dev/null
-pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/database/seed_data.sql'" 2>/dev/null
+pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/install/init_db.sql'" 2>/dev/null
 
-# Sicherheitshalber die landlord_settings Tabelle anlegen, falls init_schema fehlte
-pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -c \"CREATE TABLE IF NOT EXISTS landlord_settings (id SERIAL PRIMARY KEY, name VARCHAR(255), street VARCHAR(255), city VARCHAR(255), iban VARCHAR(50), bank_name VARCHAR(255)); INSERT INTO landlord_settings (id, name) SELECT 1, \'Bitte Daten eintragen\' WHERE NOT EXISTS (SELECT 1 FROM landlord_settings WHERE id = 1);\"'"
+# 10. .env Datei erstellen
+echo "--- Erstelle .env Konfiguration ---"
+pct exec $CTID -- bash -c "cat <<EOF > /opt/hausverwaltung/.env
+DB_NAME=hausverwaltung
+DB_USER=postgres
+DB_PASS=
+DB_HOST=127.0.0.1
+DB_PORT=5432
+EOF"
 
-# 9. Python Umgebung & Module
+# 11. Python Umgebung & Module
 echo "--- Richte Python Umgebung ein ---"
 pct exec $CTID -- bash -c "python3 -m venv /opt/hausverwaltung/venv"
 pct exec $CTID -- bash -c "/opt/hausverwaltung/venv/bin/pip install --upgrade pip"
-# Installiere aus requirements.txt oder manuell
 pct exec $CTID -- bash -c "/opt/hausverwaltung/venv/bin/pip install streamlit pandas psycopg2-binary fpdf python-dotenv"
 
-# 10. AUTOSTART DIENST ERSTELLEN
+# 12. AUTOSTART DIENST ERSTELLEN
 echo "--- Erstelle Systemd-Service ---"
 pct exec $CTID -- bash -c "cat <<EOF > /etc/systemd/system/hausverwaltung.service
 [Unit]
@@ -83,6 +105,9 @@ After=network.target postgresql.service
 Type=simple
 User=root
 WorkingDirectory=/opt/hausverwaltung
+Environment=PYTHONIOENCODING=utf-8
+Environment=LANG=de_DE.UTF-8
+Environment=LC_ALL=de_DE.UTF-8
 ExecStart=/opt/hausverwaltung/venv/bin/streamlit run main.py --server.port 8501 --server.address 0.0.0.0
 Restart=always
 RestartSec=3
@@ -93,40 +118,8 @@ EOF"
 
 # Dienst aktivieren
 pct exec $CTID -- bash -c "systemctl daemon-reload && systemctl enable hausverwaltung.service && systemctl start hausverwaltung.service"
-v
 
-
-
-
-
-# 1. Datenbank initialisieren
-su - postgres -c "psql -d hausverwaltung -f /opt/hausverwaltung/install/init_db.sql"
-
-# 2. Postgres-Rechte auf 'trust' setzen (für passwortlosen lokalen Zugriff)
-sed -i 's/local   all             postgres                                peer/local   all             postgres                                trust/' /etc/postgresql/15/main/pg_hba.conf
-systemctl restart postgresql
-
-# 3. .env Datei automatisch generieren
-cat <<EOF > /opt/hausverwaltung/.env
-DB_NAME=hausverwaltung
-DB_USER=postgres
-DB_PASS=
-DB_HOST=127.0.0.1
-DB_PORT=5432
-EOF
-
-# 4. UTF-8 Locales erzwingen
-apt update && apt install -y locales
-sed -i '/de_DE.UTF-8/s/^# //g' /etc/locale.gen
-locale-gen
-echo 'LANG=de_DE.UTF-8' > /etc/default/locale
-
-
-
-
-
-
-# 11. IP ADRESSE AUSGEBEN
+# 13. IP ADRESSE AUSGEBEN
 IP_ADDRESS=$(pct exec $CTID -- hostname -I | awk '{print $1}')
 
 echo ""
@@ -137,6 +130,6 @@ echo " Die App ist nun erreichbar unter:"
 echo " URL:  http://$IP_ADDRESS:8501"
 echo "================================================================="
 echo " Container ID: $CTID"
-echo " Viel Erfolg mit deiner Hausverwaltung!"
+echo " Sprachumgebung: de_DE.UTF-8"
+echo " Datenbank-Modus: Trust (lokal)"
 echo "================================================================="
-
