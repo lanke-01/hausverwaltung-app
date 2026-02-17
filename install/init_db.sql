@@ -29,7 +29,10 @@ CREATE TABLE tenants (
     first_name VARCHAR(255),
     last_name VARCHAR(255),
     moved_in DATE,
-    moved_out DATE
+    moved_out DATE,
+    occupants INTEGER DEFAULT 1, -- DIESE ZEILE FEHLTE!
+    phone VARCHAR(50),
+    email VARCHAR(255)
 );
 
 CREATE TABLE payments (
