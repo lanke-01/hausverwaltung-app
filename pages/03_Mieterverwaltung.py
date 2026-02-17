@@ -13,7 +13,6 @@ if conn:
     cur = conn.cursor()
 
     # --- DATENBANK-STRUKTUR AUTOMATISCH ERWEITERN ---
-    # Stellt sicher, dass alle für die Abrechnung wichtigen Spalten existieren
     try:
         cur.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS area NUMERIC(10,2) DEFAULT 0.00")
         cur.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS rent NUMERIC(10,2) DEFAULT 0.00")
@@ -45,7 +44,6 @@ if conn:
 
     # --- BEREICH 1: NEUER EINZUG ---
     with st.expander("➕ Neuer Mieter / Einzug"):
-        # Nur Wohnungen anzeigen, die aktuell nicht belegt sind
         cur.execute("""
             SELECT id, unit_name FROM apartments 
             WHERE id NOT IN (SELECT apartment_id FROM tenants WHERE moved_out IS NULL)
@@ -79,7 +77,7 @@ if conn:
 
     st.divider()
 
-    # --- BEREICH 2: BEARBEITEN & DATEN NACHPFLEGEN ---
+    # --- BEREICH 2: BEARBEITEN ---
     st.subheader("📝 Mieterdaten bearbeiten")
     cur.execute("SELECT id, first_name || ' ' || last_name FROM tenants WHERE moved_out IS NULL ORDER BY last_name")
     active_tenants = {name: tid for tid, name in cur.fetchall()}
@@ -89,41 +87,27 @@ if conn:
         
         if t_edit_sel != "-- Bitte wählen --":
             t_edit_id = active_tenants[t_edit_sel]
-            
-            # Aktuelle Daten des Mieters aus der DB laden
             cur.execute("SELECT area, occupants, utilities, rent FROM tenants WHERE id = %s", (t_edit_id,))
             current_data = cur.fetchone()
 
             with st.form(f"edit_form_{t_edit_id}"):
-                st.info(f"Daten für **{t_edit_sel}** anpassen:")
                 c1, c2, c3, c4 = st.columns(4)
-                
                 u_area = c1.number_input("Fläche (m²)", value=float(current_data[0] or 0.0), step=0.01)
                 u_occ = c2.number_input("Personen", value=int(current_data[1] or 1), step=1)
                 u_utils = c3.number_input("NK-Voraus (€)", value=float(current_data[2] or 0.0), step=0.01)
                 u_rent = c4.number_input("Kaltmiete (€)", value=float(current_data[3] or 0.0), step=0.01)
                 
                 if st.form_submit_button("Änderungen speichern"):
-                    cur.execute("""
-                        UPDATE tenants 
-                        SET area = %s, occupants = %s, utilities = %s, rent = %s 
-                        WHERE id = %s
-                    """, (u_area, u_occ, u_utils, u_rent, t_edit_id))
+                    cur.execute("UPDATE tenants SET area=%s, occupants=%s, utilities=%s, rent=%s WHERE id=%s", 
+                                (u_area, u_occ, u_utils, u_rent, t_edit_id))
                     conn.commit()
-                    st.success(f"Änderungen für {t_edit_sel} erfolgreich gespeichert!")
+                    st.success("Daten aktualisiert!")
                     st.rerun()
 
-            # Auszug registrieren
-            st.write("---")
-            if st.button("🔴 Mieter-Auszug (Vertrag beenden)"):
+            if st.button("🔴 Auszug registrieren"):
                 cur.execute("UPDATE tenants SET moved_out = CURRENT_DATE WHERE id = %s", (t_edit_id,))
                 conn.commit()
-                st.success(f"Auszug für {t_edit_sel} wurde zum heutigen Datum registriert.")
                 st.rerun()
-    else:
-        st.info("Keine aktiven Mieter zum Bearbeiten vorhanden.")
 
     cur.close()
     conn.close()
-else:
-    st.error("Datenbankverbindung fehlgeschlagen.")
