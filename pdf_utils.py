@@ -43,7 +43,7 @@ def generate_nebenkosten_pdf(landlord_data, mieter_name, wohnung, zeitraum, tage
     pdf.cell(190, 8, " Allgemeine Angaben zur Wohnung und zu den Verteilungsschlüsseln", 0, 1, 'L', True)
     pdf.set_font('Arial', '', 9)
     
-    c1, v1, c2, v2 = 50, 45, 50, 45
+    c1, v1, c2, v2 = 60, 35, 60, 35
     
     def row(l1, v1_val, l2, v2_val):
         pdf.cell(c1, 6, l1, 0)
