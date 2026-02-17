@@ -93,6 +93,38 @@ EOF"
 
 # Dienst aktivieren
 pct exec $CTID -- bash -c "systemctl daemon-reload && systemctl enable hausverwaltung.service && systemctl start hausverwaltung.service"
+v
+
+
+
+
+
+# 1. Datenbank initialisieren
+su - postgres -c "psql -d hausverwaltung -f /opt/hausverwaltung/install/init_db.sql"
+
+# 2. Postgres-Rechte auf 'trust' setzen (für passwortlosen lokalen Zugriff)
+sed -i 's/local   all             postgres                                peer/local   all             postgres                                trust/' /etc/postgresql/15/main/pg_hba.conf
+systemctl restart postgresql
+
+# 3. .env Datei automatisch generieren
+cat <<EOF > /opt/hausverwaltung/.env
+DB_NAME=hausverwaltung
+DB_USER=postgres
+DB_PASS=
+DB_HOST=127.0.0.1
+DB_PORT=5432
+EOF
+
+# 4. UTF-8 Locales erzwingen
+apt update && apt install -y locales
+sed -i '/de_DE.UTF-8/s/^# //g' /etc/locale.gen
+locale-gen
+echo 'LANG=de_DE.UTF-8' > /etc/default/locale
+
+
+
+
+
 
 # 11. IP ADRESSE AUSGEBEN
 IP_ADDRESS=$(pct exec $CTID -- hostname -I | awk '{print $1}')
@@ -107,3 +139,4 @@ echo "================================================================="
 echo " Container ID: $CTID"
 echo " Viel Erfolg mit deiner Hausverwaltung!"
 echo "================================================================="
+
