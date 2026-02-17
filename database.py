@@ -2,7 +2,6 @@ import psycopg2
 import os
 from dotenv import load_dotenv
 
-# Lädt die Variablen aus der .env Datei
 load_dotenv()
 
 def get_conn():
@@ -11,12 +10,11 @@ def get_conn():
             dbname=os.getenv("DB_NAME", "hausverwaltung"),
             user=os.getenv("DB_USER", "postgres"),
             password=os.getenv("DB_PASS", ""),
-            host=os.getenv("DB_HOST", "127.0.0.1"), # 127.0.0.1 ist stabiler als localhost
+            host=os.getenv("DB_HOST", "127.0.0.1"),
             port=os.getenv("DB_PORT", "5432")
         )
-        # ERZWINGE UTF-8 FÜR DIE VERBINDUNG
-        conn.set_client_encoding('UTF8') 
+        conn.set_client_encoding('UTF8') # WICHTIG FÜR UMLAUTE
         return conn
     except Exception as e:
-        print(f"Verbindung zur Datenbank fehlgeschlagen: {e}")
+        print(f"Fehler: {e}")
         return None
