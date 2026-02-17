@@ -45,12 +45,12 @@ pct start $CTID
 echo "Warte auf Netzwerk (20s)..."
 sleep 20
 
-# 6. Software-Installation im Container
+# 6. Software-Installation
 echo "--- Installiere System-Software ---"
 pct exec $CTID -- bash -c "apt update && apt install -y postgresql git python3 python3-pip python3-venv libpq-dev locales"
 
-# 7. Sprachumgebung (Locales) auf UTF-8 setzen (Wichtig gegen den ASCII-Fehler)
-echo "--- Konfiguriere UTF-8 Locales ---"
+# 7. UTF-8 Locales (Gegen den ASCII Fehler)
+echo "--- Konfiguriere UTF-8 ---"
 pct exec $CTID -- bash -c "sed -i '/de_DE.UTF-8/s/^# //g' /etc/locale.gen && locale-gen"
 pct exec $CTID -- bash -c "echo 'LANG=de_DE.UTF-8' > /etc/default/locale"
 pct exec $CTID -- bash -c "echo 'LC_ALL=de_DE.UTF-8' >> /etc/default/locale"
@@ -61,41 +61,39 @@ REPO_NAME="hausverwaltung-app"
 echo "--- Klone Repository ---"
 pct exec $CTID -- bash -c "git clone https://github.com/$GITHUB_USER/$REPO_NAME.git /opt/hausverwaltung"
 
-# 9. Automatische Bereinigung von Sonderzeichen im Code (€ und m²)
-echo "--- Bereinige Sonderzeichen im Python-Code ---"
+# 9. Sonderzeichen-Bereinigung
+echo "--- Bereinige Sonderzeichen (€/m²) ---"
 pct exec $CTID -- bash -c "find /opt/hausverwaltung -name '*.py' -exec sed -i 's/€/Euro/g' {} +"
 pct exec $CTID -- bash -c "find /opt/hausverwaltung -name '*.py' -exec sed -i 's/m²/qm/g' {} +"
 
-# 10. Datenbank Einrichtung & Rechte (Trust-Modus)
-echo "--- Richte PostgreSQL ein ---"
-pct exec $CTID -- bash -c "sed -i 's/local   all             postgres                                peer/local   all             postgres                                trust/' /etc/postgresql/15/main/pg_hba.conf"
-pct exec $CTID -- bash -c "systemctl restart postgresql"
+# 10. Datenbank-Konfiguration (DER KRITISCHE TEIL)
+echo "--- Konfiguriere PostgreSQL Rechte ---"
+pct exec $CTID -- bash -c "
+sed -i \"s/local   all             postgres                                peer/local   all             postgres                                trust/\" /etc/postgresql/15/main/pg_hba.conf
+sed -i \"s/host    all             all             127.0.0.1\/32            scram-sha-256/host    all             all             127.0.0.1\/32            trust/\" /etc/postgresql/15/main/pg_hba.conf
+systemctl restart postgresql
+"
 
-# Datenbank erstellen (falls nicht vorhanden)
+# Warten bis Postgres wirklich da ist
+echo "Warte auf Datenbank-Bereitschaft..."
+pct exec $CTID -- bash -c "until pg_isready; do sleep 1; done"
+
+# Datenbank erstellen und Schema laden
+echo "--- Erstelle Tabellen ---"
 pct exec $CTID -- bash -c "su - postgres -c 'psql -c \"CREATE DATABASE hausverwaltung;\"'"
+pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/install/init_db.sql' || su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/database/init_schema.sql'"
 
-# Schema importieren (versucht beide gängigen Pfade)
-pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/install/init_db.sql'" || \
-pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/database/init_schema.sql'"
+# 11. .env Datei absolut sicher erstellen
+echo "--- Erstelle .env ---"
+pct exec $CTID -- bash -c "printf \"DB_NAME=hausverwaltung\nDB_USER=postgres\nDB_PASS=\nDB_HOST=127.0.0.1\nDB_PORT=5432\n\" > /opt/hausverwaltung/.env"
 
-# 11. .env Datei im Container erstellen
-echo "--- Erstelle .env Datei ---"
-pct exec $CTID -- bash -c "cat <<EOF > /opt/hausverwaltung/.env
-DB_NAME=hausverwaltung
-DB_USER=postgres
-DB_PASS=
-DB_HOST=127.0.0.1
-DB_PORT=5432
-EOF"
-
-# 12. Python Umgebung & Module
-echo "--- Richte Python Venv ein ---"
+# 12. Python Venv und Pakete
+echo "--- Installiere Python Module ---"
 pct exec $CTID -- bash -c "python3 -m venv /opt/hausverwaltung/venv"
-pct exec $CTID -- bash -c "/opt/hausverwaltung/venv/bin/pip install --upgrade pip"
 pct exec $CTID -- bash -c "/opt/hausverwaltung/venv/bin/pip install streamlit pandas psycopg2-binary fpdf python-dotenv"
 
-# 13. Autostart Dienst (Systemd) erstellen
-echo "--- Erstelle Systemd-Service ---"
+# 13. Systemd Service
+echo "--- Erstelle Autostart-Dienst ---"
 pct exec $CTID -- bash -c "cat <<EOF > /etc/systemd/system/hausverwaltung.service
 [Unit]
 Description=Streamlit Hausverwaltung App
@@ -115,16 +113,12 @@ Restart=always
 WantedBy=multi-user.target
 EOF"
 
-# Dienst aktivieren und starten
-pct exec $CTID -- bash -c "systemctl daemon-reload && systemctl enable hausverwaltung.service && systemctl start hausverwaltung.service"
+pct exec $CTID -- bash -c "systemctl daemon-reload && systemctl enable hausverwaltung.service && systemctl restart hausverwaltung.service"
 
-# 14. IP Adresse auslesen und Erfolg melden
+# 14. Abschluss
 IP_ADDRESS=$(pct exec $CTID -- hostname -I | awk '{print $1}')
-
 echo ""
 echo "================================================================="
-echo " 🎉 INSTALLATION ERFOLGREICH!"
-echo "================================================================="
-echo " App-URL: http://$IP_ADDRESS:8501"
-echo " Container ID: $CTID"
+echo " 🎉 INSTALLATION ABGESCHLOSSEN!"
+echo " URL: http://$IP_ADDRESS:8501"
 echo "================================================================="
