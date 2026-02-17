@@ -48,7 +48,7 @@ if conn:
 
     st.divider()
 
-    # 2. DATENSICHERUNG (BACKUP, RESTORE & UPLOAD)
+    # 2. DATENSICHERUNG (BACKUP, RESTORE, UPLOAD & DELETE)
     st.subheader("💾 Datensicherung & Wiederherstellung")
     
     col_b1, col_b2 = st.columns([1, 2])
@@ -96,40 +96,61 @@ if conn:
                 for f in files:
                     file_path = os.path.join(backup_dir, f)
                     st.write(f"---")
-                    c1, c2, c3 = st.columns([2, 1, 1])
+                    # Vier Spalten: Name, Download, Restore, Löschen
+                    c1, c2, c3, c4 = st.columns([2, 0.8, 0.8, 0.8])
                     
                     c1.text(f"📄 {f}")
                     
                     # DOWNLOAD
                     with open(file_path, "rb") as fb:
-                        c2.download_button("Download", fb, file_name=f, mime="application/sql", key=f"dl_{f}")
+                        c2.download_button("💾", fb, file_name=f, mime="application/sql", key=f"dl_{f}", help="Download")
                     
                     # RESTORE Logik
-                    if c3.button("Restore", key=f"btn_res_{f}"):
+                    if c3.button("🔄", key=f"btn_res_{f}", help="Wiederherstellen"):
                         st.session_state[f"confirm_restore_{f}"] = True
 
-                    # Sicherheitsabfrage nach Klick auf Restore
+                    # LÖSCHEN Logik
+                    if c4.button("🗑️", key=f"btn_del_{f}", help="Löschen"):
+                        st.session_state[f"confirm_delete_{f}"] = True
+
+                    # Sicherheitsabfrage RESTORE
                     if st.session_state.get(f"confirm_restore_{f}", False):
-                        st.error(f"⚠️ ACHTUNG: Soll das Backup **{f}** wirklich eingespielt werden? Alle aktuellen Daten werden gelöscht!")
-                        if st.button(f"🔥 JA, JETZT ÜBERSCHREIBEN", key=f"fire_{f}"):
+                        st.warning(f"⚠️ Backup **{f}** einspielen? Aktuelle Daten werden gelöscht!")
+                        col_r1, col_r2 = st.columns(2)
+                        if col_r1.button(f"🔥 JA, RESTORE", key=f"fire_{f}"):
                             try:
-                                # Restore-Befehl ausführen
                                 restore_cmd = f"su - postgres -c 'psql -d hausverwaltung -f {file_path}'"
                                 res = subprocess.run(restore_cmd, shell=True, capture_output=True, text=True)
-                                
                                 if res.returncode == 0:
-                                    st.success("✅ Wiederherstellung erfolgreich!")
-                                    st.info("App startet neu...")
+                                    st.success("Wiederherstellung erfolgreich!")
                                     subprocess.run(["systemctl", "restart", "hausverwaltung.service"])
                                 else:
-                                    st.error(f"Fehler beim Restore: {res.stderr}")
+                                    st.error(f"Fehler: {res.stderr}")
                             except Exception as e:
                                 st.error(f"Systemfehler: {e}")
-                        if st.button("Abbrechen", key=f"cancel_{f}"):
+                        if col_r2.button("Abbrechen", key=f"can_res_{f}"):
                             st.session_state[f"confirm_restore_{f}"] = False
+                            st.rerun()
+
+                    # Sicherheitsabfrage LÖSCHEN
+                    if st.session_state.get(f"confirm_delete_{f}", False):
+                        st.error(f"🗑️ Datei **{f}** endgültig löschen?")
+                        col_d1, col_d2 = st.columns(2)
+                        if col_d1.button(f"✔️ JA, LÖSCHEN", key=f"real_del_{f}"):
+                            try:
+                                os.remove(file_path)
+                                st.success("Datei gelöscht.")
+                                st.session_state[f"confirm_delete_{f}"] = False
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Fehler beim Löschen: {e}")
+                        if col_d2.button("Abbrechen", key=f"can_del_{f}"):
+                            st.session_state[f"confirm_delete_{f}"] = False
                             st.rerun()
             else:
                 st.info("Keine Backups vorhanden.")
+        else:
+            st.warning("Backup-Verzeichnis existiert nicht.")
 
     st.divider()
 
@@ -142,7 +163,6 @@ if conn:
                 st.info("ℹ️ Die Software ist bereits auf dem neuesten Stand.")
             else:
                 st.success("✅ Update erfolgreich!")
-                st.warning("🔄 Starte App neu...")
                 subprocess.run(["systemctl", "restart", "hausverwaltung.service"])
         except Exception as e:
             st.error(f"Update fehlgeschlagen: {e}")
