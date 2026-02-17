@@ -50,40 +50,62 @@ if conn:
 
     # 2. DATENSICHERUNG (BACKUP)
     st.subheader("💾 Datensicherung (Backup)")
-    st.write("Erstellen Sie eine manuelle Sicherungskopie der Datenbank.")
+    st.write("Erstellen Sie Sicherungskopien oder laden Sie vorhandene Backups herunter.")
     
     col_b1, col_b2 = st.columns([1, 2])
     
     with col_b1:
+        st.write("✨ **Neues Backup**")
         if st.button("🔴 Backup jetzt erstellen"):
             backup_script = "/opt/hausverwaltung/install/backup_db.sh"
             if os.path.exists(backup_script):
                 result = subprocess.run([backup_script], capture_output=True, text=True)
                 if result.returncode == 0:
-                    st.success("Backup erfolgreich!")
-                    st.toast("Backup erstellt", icon="💾")
+                    st.success("Backup erfolgreich erstellt!")
+                    st.rerun() # Seite neu laden um Liste zu aktualisieren
                 else:
                     st.error(f"Fehler: {result.stderr}")
             else:
                 st.error("Skript backup_db.sh nicht gefunden!")
 
     with col_b2:
-        if st.checkbox("Vorhandene Backups anzeigen"):
-            backup_dir = "/opt/hausverwaltung/backups"
-            if os.path.exists(backup_dir):
-                files = os.listdir(backup_dir)
-                files.sort(reverse=True)
-                if files:
-                    for f in files:
-                        st.text(f"📄 {f}")
-                else:
-                    st.write("Keine Backups gefunden.")
+        st.write("📂 **Verfügbare Downloads**")
+        backup_dir = "/opt/hausverwaltung/backups"
+        if os.path.exists(backup_dir):
+            files = os.listdir(backup_dir)
+            files = [f for f in files if f.endswith(".sql")]
+            files.sort(reverse=True) # Neueste zuerst
+            
+            if files:
+                for f in files:
+                    file_path = os.path.join(backup_dir, f)
+                    
+                    # Layout für Dateiname und Download-Button
+                    c1, c2 = st.columns([3, 1])
+                    c1.text(f"📄 {f}")
+                    
+                    # Datei zum Download anbieten
+                    try:
+                        with open(file_path, "rb") as file_bytes:
+                            c2.download_button(
+                                label="Download",
+                                data=file_bytes,
+                                file_name=f,
+                                mime="application/sql",
+                                key=f"dl_{f}" # Eindeutiger Key
+                            )
+                    except Exception as e:
+                        c2.error("Fehler")
+            else:
+                st.info("Noch keine Backups vorhanden.")
+        else:
+            st.warning("Backup-Verzeichnis existiert noch nicht.")
 
     st.divider()
 
     # 3. SOFTWARE-UPDATE (GIT PULL)
     st.subheader("🚀 System-Update")
-    st.write("Hier können Sie die neueste Version von GitHub laden.")
+    st.write("Aktualisieren Sie die App auf die neueste Version von GitHub.")
     
     if st.button("Update von GitHub laden"):
         try:
@@ -96,13 +118,12 @@ if conn:
                 st.success("✅ Update erfolgreich heruntergeladen!")
                 st.code(update_result.stdout)
                 
-                # Dienst neu starten (erfordert sudo Rechte für den user, 
-                # im LXC als root meist kein Problem)
-                st.warning("🔄 Starte App neu...")
+                # Dienst neu starten
+                st.warning("🔄 Starte App neu... Bitte kurz warten.")
                 subprocess.run(["systemctl", "restart", "hausverwaltung.service"])
         except Exception as e:
             st.error(f"Update fehlgeschlagen: {e}")
 
     conn.close()
 else:
-    st.error("❌ Keine Datenbankverbindung möglich. Bitte prüfen Sie die Verbindungseinstellungen.")
+    st.error("❌ Keine Datenbankverbindung möglich.")
