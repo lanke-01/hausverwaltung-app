@@ -11,6 +11,20 @@ st.title("⚙️ Vermieter-Einstellungen & System")
 
 conn = get_conn()
 
+def cleanup_old_backups(backup_dir, max_files=5):
+    """Löscht die ältesten Backups, wenn mehr als max_files vorhanden sind."""
+    try:
+        files = [os.path.join(backup_dir, f) for f in os.listdir(backup_dir) if f.endswith(".sql")]
+        # Sortieren nach Erstellungszeit (älteste zuerst)
+        files.sort(key=os.path.getmtime)
+        
+        while len(files) > max_files:
+            oldest_file = files.pop(0)
+            os.remove(oldest_file)
+            st.info(f"🗑️ Automatisches Aufräumen: Altes Backup {os.path.basename(oldest_file)} wurde gelöscht.")
+    except Exception as e:
+        st.error(f"Fehler beim automatischen Aufräumen: {e}")
+
 if conn:
     cur = conn.cursor()
     
@@ -58,11 +72,15 @@ if conn:
         
         # Backup erstellen
         if st.button("🔴 Backup jetzt erstellen"):
+            backup_dir = "/opt/hausverwaltung/backups"
             backup_script = "/opt/hausverwaltung/install/backup_db.sh"
+            
             if os.path.exists(backup_script):
                 result = subprocess.run([backup_script], capture_output=True, text=True)
                 if result.returncode == 0:
                     st.success("Backup erfolgreich erstellt!")
+                    # Automatisches Aufräumen auf 5 Dateien
+                    cleanup_old_backups(backup_dir, max_files=5)
                     st.rerun()
                 else:
                     st.error(f"Fehler: {result.stderr}")
@@ -82,47 +100,45 @@ if conn:
             file_path = os.path.join(backup_dir, uploaded_file.name)
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
-            st.success(f"Datei {uploaded_file.name} erfolgreich hochgeladen!")
+            st.success(f"Datei {uploaded_file.name} hochgeladen!")
+            # Auch hier aufräumen, falls durch Upload das Limit überschritten wird
+            cleanup_old_backups(backup_dir, max_files=5)
             st.rerun()
 
     with col_b2:
-        st.write("📂 **Backup-Verwaltung**")
+        st.write("📂 **Backup-Verwaltung (Limit: 5 Dateien)**")
         backup_dir = "/opt/hausverwaltung/backups"
         if os.path.exists(backup_dir):
             files = [f for f in os.listdir(backup_dir) if f.endswith(".sql")]
-            files.sort(reverse=True)
+            files.sort(key=lambda x: os.path.getmtime(os.path.join(backup_dir, x)), reverse=True)
             
             if files:
                 for f in files:
                     file_path = os.path.join(backup_dir, f)
                     st.write(f"---")
-                    # Vier Spalten: Name, Download, Restore, Löschen
                     c1, c2, c3, c4 = st.columns([2, 0.8, 0.8, 0.8])
                     
                     c1.text(f"📄 {f}")
                     
-                    # DOWNLOAD
                     with open(file_path, "rb") as fb:
                         c2.download_button("💾", fb, file_name=f, mime="application/sql", key=f"dl_{f}", help="Download")
                     
-                    # RESTORE Logik
                     if c3.button("🔄", key=f"btn_res_{f}", help="Wiederherstellen"):
                         st.session_state[f"confirm_restore_{f}"] = True
 
-                    # LÖSCHEN Logik
                     if c4.button("🗑️", key=f"btn_del_{f}", help="Löschen"):
                         st.session_state[f"confirm_delete_{f}"] = True
 
                     # Sicherheitsabfrage RESTORE
                     if st.session_state.get(f"confirm_restore_{f}", False):
-                        st.warning(f"⚠️ Backup **{f}** einspielen? Aktuelle Daten werden gelöscht!")
+                        st.warning(f"⚠️ Backup **{f}** einspielen?")
                         col_r1, col_r2 = st.columns(2)
                         if col_r1.button(f"🔥 JA, RESTORE", key=f"fire_{f}"):
                             try:
                                 restore_cmd = f"su - postgres -c 'psql -d hausverwaltung -f {file_path}'"
                                 res = subprocess.run(restore_cmd, shell=True, capture_output=True, text=True)
                                 if res.returncode == 0:
-                                    st.success("Wiederherstellung erfolgreich!")
+                                    st.success("Erfolgreich!")
                                     subprocess.run(["systemctl", "restart", "hausverwaltung.service"])
                                 else:
                                     st.error(f"Fehler: {res.stderr}")
@@ -134,23 +150,17 @@ if conn:
 
                     # Sicherheitsabfrage LÖSCHEN
                     if st.session_state.get(f"confirm_delete_{f}", False):
-                        st.error(f"🗑️ Datei **{f}** endgültig löschen?")
+                        st.error(f"Datei **{f}** löschen?")
                         col_d1, col_d2 = st.columns(2)
-                        if col_d1.button(f"✔️ JA, LÖSCHEN", key=f"real_del_{f}"):
-                            try:
-                                os.remove(file_path)
-                                st.success("Datei gelöscht.")
-                                st.session_state[f"confirm_delete_{f}"] = False
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Fehler beim Löschen: {e}")
+                        if col_d1.button(f"✔️ LÖSCHEN", key=f"real_del_{f}"):
+                            os.remove(file_path)
+                            st.session_state[f"confirm_delete_{f}"] = False
+                            st.rerun()
                         if col_d2.button("Abbrechen", key=f"can_del_{f}"):
                             st.session_state[f"confirm_delete_{f}"] = False
                             st.rerun()
             else:
                 st.info("Keine Backups vorhanden.")
-        else:
-            st.warning("Backup-Verzeichnis existiert nicht.")
 
     st.divider()
 
@@ -160,7 +170,7 @@ if conn:
         try:
             update_result = subprocess.run(["git", "-C", "/opt/hausverwaltung", "pull"], capture_output=True, text=True)
             if "Already up to date" in update_result.stdout:
-                st.info("ℹ️ Die Software ist bereits auf dem neuesten Stand.")
+                st.info("ℹ️ Bereits aktuell.")
             else:
                 st.success("✅ Update erfolgreich!")
                 subprocess.run(["systemctl", "restart", "hausverwaltung.service"])
@@ -168,5 +178,3 @@ if conn:
             st.error(f"Update fehlgeschlagen: {e}")
 
     conn.close()
-else:
-    st.error("❌ Keine Datenbankverbindung.")
