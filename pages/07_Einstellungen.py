@@ -1,6 +1,7 @@
 import streamlit as st
 import subprocess
 import os
+import shutil
 from database import get_conn
 from datetime import datetime
 
@@ -47,14 +48,15 @@ if conn:
 
     st.divider()
 
-    # 2. DATENSICHERUNG (BACKUP & RESTORE)
+    # 2. DATENSICHERUNG (BACKUP, RESTORE & UPLOAD)
     st.subheader("💾 Datensicherung & Wiederherstellung")
-    st.write("Verwalten Sie Ihre Backups. **Vorsicht:** Ein Restore überschreibt alle aktuellen Daten!")
     
     col_b1, col_b2 = st.columns([1, 2])
     
     with col_b1:
-        st.write("✨ **Neues Backup**")
+        st.write("✨ **Aktionen**")
+        
+        # Backup erstellen
         if st.button("🔴 Backup jetzt erstellen"):
             backup_script = "/opt/hausverwaltung/install/backup_db.sh"
             if os.path.exists(backup_script):
@@ -66,6 +68,22 @@ if conn:
                     st.error(f"Fehler: {result.stderr}")
             else:
                 st.error("Skript backup_db.sh nicht gefunden!")
+        
+        st.write("---")
+        
+        # Backup HOCHLADEN
+        st.write("📤 **Backup hochladen (.sql)**")
+        uploaded_file = st.file_uploader("Datei auswählen", type=["sql"])
+        if uploaded_file is not None:
+            backup_dir = "/opt/hausverwaltung/backups"
+            if not os.path.exists(backup_dir):
+                os.makedirs(backup_dir)
+            
+            file_path = os.path.join(backup_dir, uploaded_file.name)
+            with open(file_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            st.success(f"Datei {uploaded_file.name} erfolgreich hochgeladen!")
+            st.rerun()
 
     with col_b2:
         st.write("📂 **Backup-Verwaltung**")
@@ -77,6 +95,7 @@ if conn:
             if files:
                 for f in files:
                     file_path = os.path.join(backup_dir, f)
+                    st.write(f"---")
                     c1, c2, c3 = st.columns([2, 1, 1])
                     
                     c1.text(f"📄 {f}")
@@ -85,26 +104,30 @@ if conn:
                     with open(file_path, "rb") as fb:
                         c2.download_button("Download", fb, file_name=f, mime="application/sql", key=f"dl_{f}")
                     
-                    # RESTORE (Wiederherstellung)
-                    if c3.button("Restore", key=f"res_{f}"):
-                        st.warning(f"Soll das Backup {f} wirklich eingespielt werden?")
-                        confirm = st.checkbox("Ja, aktuelle Daten überschreiben", key=f"conf_{f}")
-                        if confirm:
-                            if st.button("🔥 JETZT WIEDERHERSTELLEN", key=f"fire_{f}"):
-                                try:
-                                    # Restore-Befehl ausführen
-                                    # Wir nutzen psql, um das Backup einzuspielen
-                                    restore_cmd = f"su - postgres -c 'psql -d hausverwaltung -f {file_path}'"
-                                    res = subprocess.run(restore_cmd, shell=True, capture_output=True, text=True)
-                                    
-                                    if res.returncode == 0:
-                                        st.success("✅ Wiederherstellung erfolgreich!")
-                                        st.info("App startet neu...")
-                                        subprocess.run(["systemctl", "restart", "hausverwaltung.service"])
-                                    else:
-                                        st.error(f"Fehler beim Restore: {res.stderr}")
-                                except Exception as e:
-                                    st.error(f"Systemfehler: {e}")
+                    # RESTORE Logik
+                    if c3.button("Restore", key=f"btn_res_{f}"):
+                        st.session_state[f"confirm_restore_{f}"] = True
+
+                    # Sicherheitsabfrage nach Klick auf Restore
+                    if st.session_state.get(f"confirm_restore_{f}", False):
+                        st.error(f"⚠️ ACHTUNG: Soll das Backup **{f}** wirklich eingespielt werden? Alle aktuellen Daten werden gelöscht!")
+                        if st.button(f"🔥 JA, JETZT ÜBERSCHREIBEN", key=f"fire_{f}"):
+                            try:
+                                # Restore-Befehl ausführen
+                                restore_cmd = f"su - postgres -c 'psql -d hausverwaltung -f {file_path}'"
+                                res = subprocess.run(restore_cmd, shell=True, capture_output=True, text=True)
+                                
+                                if res.returncode == 0:
+                                    st.success("✅ Wiederherstellung erfolgreich!")
+                                    st.info("App startet neu...")
+                                    subprocess.run(["systemctl", "restart", "hausverwaltung.service"])
+                                else:
+                                    st.error(f"Fehler beim Restore: {res.stderr}")
+                            except Exception as e:
+                                st.error(f"Systemfehler: {e}")
+                        if st.button("Abbrechen", key=f"cancel_{f}"):
+                            st.session_state[f"confirm_restore_{f}"] = False
+                            st.rerun()
             else:
                 st.info("Keine Backups vorhanden.")
 
