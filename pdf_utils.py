@@ -37,13 +37,14 @@ def generate_nebenkosten_pdf(landlord_data, mieter_name, wohnung, zeitraum, tage
     pdf.cell(0, 5, f"Wohnung: {wohnung}", ln=True)
     pdf.ln(10)
 
-    # --- INFODATEN (HIER WURDEN DIE BREITEN KORRIGIERT: 50+45+50+45 = 190mm) ---
+   # --- INFODATEN MIT MEHR PLATZ ---
     pdf.set_fill_color(240, 240, 240)
     pdf.set_font('Arial', 'B', 10)
     pdf.cell(190, 8, " Allgemeine Angaben zur Wohnung und zu den Verteilungsschlüsseln", 0, 1, 'L', True)
     pdf.set_font('Arial', '', 9)
     
-    c1, v1, c2, v2 = 20, 40, 20, 40
+    # Breite für Label und Wert
+    c1, v1, c2, v2 = 50, 45, 50, 45
     
     def row(l1, v1_val, l2, v2_val):
         pdf.cell(c1, 6, l1, 0)
@@ -51,16 +52,25 @@ def generate_nebenkosten_pdf(landlord_data, mieter_name, wohnung, zeitraum, tage
         pdf.cell(c2, 6, l2, 0)
         pdf.cell(v2, 6, str(v2_val), 1)
 
-    row("Ihr Nutzungszeit:", zeitraum, "Abrechnungszeit:", zeitraum)
+    # ZEILENUMBRIKE DURCH AUFTEILUNG:
+    # Zeile 1: Nur die Überschriften der Zeiträume
+    row("Ihr Nutzungszeitraum:", "", "Abrechnungszeitraum:", "")
+    # Zeile 2: Die tatsächlichen Daten (leicht eingerückt durch Leerzeichen)
+    row("  " + zeitraum, "", "  " + zeitraum, "")
+    
+    # Trennlinie oder kleiner Abstand
+    pdf.ln(2)
+    
+    # Der Rest bleibt kompakt
     row("Ihre Nutzungstage:", tage, "Abrechnungstage:", "365")
-    row("Fläche Ihrer Wohnung:", f"{m_stats['area']} m2", "Gesamtfläche Haus:", f"{h_stats['area']} m2")
+    row("Wohnfläche Wohnung:", f"{m_stats['area']} m2", "Gesamtfläche Haus:", f"{h_stats['area']} m2")
     row("Personen (Ihr Haushalt):", m_stats['pers'], "Wohneinheiten Haus:", h_stats['units'])
     
     m_pt = m_stats['pers'] * tage
     h_pt = h_stats['pers'] * 365
     row("Ihre Personentage:", m_pt, "Gesamt-Personentage:", h_pt)
     
-    pdf.ln(20)
+    pdf.ln(10)
 
     # --- KOSTENTABELLE (OPTIMIERTE BREITEN: 55+30+35+40+30 = 190mm) ---
     pdf.set_font('Arial', 'B', 9)
