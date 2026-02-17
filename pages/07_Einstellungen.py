@@ -17,7 +17,6 @@ if conn:
     cur.execute("SELECT name, street, city, iban, bank_name FROM landlord_settings WHERE id = 1")
     data = cur.fetchone()
     
-    # Falls Tabelle leer ist, Standardwerte setzen
     if not data:
         data = ("Bitte Name angeben", "", "", "", "")
     
@@ -48,9 +47,9 @@ if conn:
 
     st.divider()
 
-    # 2. DATENSICHERUNG (BACKUP)
-    st.subheader("💾 Datensicherung (Backup)")
-    st.write("Erstellen Sie Sicherungskopien oder laden Sie vorhandene Backups herunter.")
+    # 2. DATENSICHERUNG (BACKUP & RESTORE)
+    st.subheader("💾 Datensicherung & Wiederherstellung")
+    st.write("Verwalten Sie Ihre Backups. **Vorsicht:** Ein Restore überschreibt alle aktuellen Daten!")
     
     col_b1, col_b2 = st.columns([1, 2])
     
@@ -62,68 +61,69 @@ if conn:
                 result = subprocess.run([backup_script], capture_output=True, text=True)
                 if result.returncode == 0:
                     st.success("Backup erfolgreich erstellt!")
-                    st.rerun() # Seite neu laden um Liste zu aktualisieren
+                    st.rerun()
                 else:
                     st.error(f"Fehler: {result.stderr}")
             else:
                 st.error("Skript backup_db.sh nicht gefunden!")
 
     with col_b2:
-        st.write("📂 **Verfügbare Downloads**")
+        st.write("📂 **Backup-Verwaltung**")
         backup_dir = "/opt/hausverwaltung/backups"
         if os.path.exists(backup_dir):
-            files = os.listdir(backup_dir)
-            files = [f for f in files if f.endswith(".sql")]
-            files.sort(reverse=True) # Neueste zuerst
+            files = [f for f in os.listdir(backup_dir) if f.endswith(".sql")]
+            files.sort(reverse=True)
             
             if files:
                 for f in files:
                     file_path = os.path.join(backup_dir, f)
+                    c1, c2, c3 = st.columns([2, 1, 1])
                     
-                    # Layout für Dateiname und Download-Button
-                    c1, c2 = st.columns([3, 1])
                     c1.text(f"📄 {f}")
                     
-                    # Datei zum Download anbieten
-                    try:
-                        with open(file_path, "rb") as file_bytes:
-                            c2.download_button(
-                                label="Download",
-                                data=file_bytes,
-                                file_name=f,
-                                mime="application/sql",
-                                key=f"dl_{f}" # Eindeutiger Key
-                            )
-                    except Exception as e:
-                        c2.error("Fehler")
+                    # DOWNLOAD
+                    with open(file_path, "rb") as fb:
+                        c2.download_button("Download", fb, file_name=f, mime="application/sql", key=f"dl_{f}")
+                    
+                    # RESTORE (Wiederherstellung)
+                    if c3.button("Restore", key=f"res_{f}"):
+                        st.warning(f"Soll das Backup {f} wirklich eingespielt werden?")
+                        confirm = st.checkbox("Ja, aktuelle Daten überschreiben", key=f"conf_{f}")
+                        if confirm:
+                            if st.button("🔥 JETZT WIEDERHERSTELLEN", key=f"fire_{f}"):
+                                try:
+                                    # Restore-Befehl ausführen
+                                    # Wir nutzen psql, um das Backup einzuspielen
+                                    restore_cmd = f"su - postgres -c 'psql -d hausverwaltung -f {file_path}'"
+                                    res = subprocess.run(restore_cmd, shell=True, capture_output=True, text=True)
+                                    
+                                    if res.returncode == 0:
+                                        st.success("✅ Wiederherstellung erfolgreich!")
+                                        st.info("App startet neu...")
+                                        subprocess.run(["systemctl", "restart", "hausverwaltung.service"])
+                                    else:
+                                        st.error(f"Fehler beim Restore: {res.stderr}")
+                                except Exception as e:
+                                    st.error(f"Systemfehler: {e}")
             else:
-                st.info("Noch keine Backups vorhanden.")
-        else:
-            st.warning("Backup-Verzeichnis existiert noch nicht.")
+                st.info("Keine Backups vorhanden.")
 
     st.divider()
 
-    # 3. SOFTWARE-UPDATE (GIT PULL)
+    # 3. SOFTWARE-UPDATE
     st.subheader("🚀 System-Update")
-    st.write("Aktualisieren Sie die App auf die neueste Version von GitHub.")
-    
     if st.button("Update von GitHub laden"):
         try:
-            # Git Pull im Projektverzeichnis
             update_result = subprocess.run(["git", "-C", "/opt/hausverwaltung", "pull"], capture_output=True, text=True)
-            
             if "Already up to date" in update_result.stdout:
                 st.info("ℹ️ Die Software ist bereits auf dem neuesten Stand.")
             else:
-                st.success("✅ Update erfolgreich heruntergeladen!")
-                st.code(update_result.stdout)
-                
-                # Dienst neu starten
-                st.warning("🔄 Starte App neu... Bitte kurz warten.")
+                st.success("✅ Update erfolgreich!")
+                st.warning("🔄 Starte App neu...")
                 subprocess.run(["systemctl", "restart", "hausverwaltung.service"])
         except Exception as e:
             st.error(f"Update fehlgeschlagen: {e}")
 
     conn.close()
 else:
-    st.error("❌ Keine Datenbankverbindung möglich.")
+    st.error("❌ Keine Datenbankverbindung.")
