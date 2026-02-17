@@ -57,6 +57,7 @@ if conn:
                 """, (name, street, city, iban, bank_name))
                 conn.commit()
                 st.success("✅ Stammdaten erfolgreich gespeichert!")
+                st.rerun()
             except Exception as e:
                 st.error(f"Fehler beim Speichern: {e}")
 
@@ -79,13 +80,12 @@ if conn:
                 result = subprocess.run([backup_script], capture_output=True, text=True)
                 if result.returncode == 0:
                     st.success("Backup erfolgreich erstellt!")
-                    # Automatisches Aufräumen auf 5 Dateien
                     cleanup_old_backups(backup_dir, max_files=5)
                     st.rerun()
                 else:
                     st.error(f"Fehler: {result.stderr}")
             else:
-                st.error("Skript backup_db.sh nicht gefunden!")
+                st.error("Skript nicht gefunden! Pfad prüfen: /opt/hausverwaltung/install/backup_db.sh")
         
         st.write("---")
         
@@ -101,7 +101,6 @@ if conn:
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             st.success(f"Datei {uploaded_file.name} hochgeladen!")
-            # Auch hier aufräumen, falls durch Upload das Limit überschritten wird
             cleanup_old_backups(backup_dir, max_files=5)
             st.rerun()
 
@@ -110,6 +109,7 @@ if conn:
         backup_dir = "/opt/hausverwaltung/backups"
         if os.path.exists(backup_dir):
             files = [f for f in os.listdir(backup_dir) if f.endswith(".sql")]
+            # Sortieren nach Zeit (neueste zuerst)
             files.sort(key=lambda x: os.path.getmtime(os.path.join(backup_dir, x)), reverse=True)
             
             if files:
@@ -120,20 +120,23 @@ if conn:
                     
                     c1.text(f"📄 {f}")
                     
+                    # DOWNLOAD
                     with open(file_path, "rb") as fb:
                         c2.download_button("💾", fb, file_name=f, mime="application/sql", key=f"dl_{f}", help="Download")
                     
+                    # RESTORE
                     if c3.button("🔄", key=f"btn_res_{f}", help="Wiederherstellen"):
                         st.session_state[f"confirm_restore_{f}"] = True
 
+                    # LÖSCHEN
                     if c4.button("🗑️", key=f"btn_del_{f}", help="Löschen"):
                         st.session_state[f"confirm_delete_{f}"] = True
 
-                    # Sicherheitsabfrage RESTORE
+                    # Dialoge für Bestätigung
                     if st.session_state.get(f"confirm_restore_{f}", False):
-                        st.warning(f"⚠️ Backup **{f}** einspielen?")
-                        col_r1, col_r2 = st.columns(2)
-                        if col_r1.button(f"🔥 JA, RESTORE", key=f"fire_{f}"):
+                        st.warning(f"⚠️ Backup **{f}** einspielen? Aktuelle Daten werden gelöscht!")
+                        cr1, cr2 = st.columns(2)
+                        if cr1.button(f"🔥 JA, RESTORE", key=f"fire_{f}"):
                             try:
                                 restore_cmd = f"su - postgres -c 'psql -d hausverwaltung -f {file_path}'"
                                 res = subprocess.run(restore_cmd, shell=True, capture_output=True, text=True)
@@ -143,20 +146,19 @@ if conn:
                                 else:
                                     st.error(f"Fehler: {res.stderr}")
                             except Exception as e:
-                                st.error(f"Systemfehler: {e}")
-                        if col_r2.button("Abbrechen", key=f"can_res_{f}"):
+                                st.error(f"Fehler: {e}")
+                        if cr2.button("Abbrechen", key=f"can_res_{f}"):
                             st.session_state[f"confirm_restore_{f}"] = False
                             st.rerun()
 
-                    # Sicherheitsabfrage LÖSCHEN
                     if st.session_state.get(f"confirm_delete_{f}", False):
                         st.error(f"Datei **{f}** löschen?")
-                        col_d1, col_d2 = st.columns(2)
-                        if col_d1.button(f"✔️ LÖSCHEN", key=f"real_del_{f}"):
+                        cd1, cd2 = st.columns(2)
+                        if cd1.button(f"✔️ LÖSCHEN", key=f"real_del_{f}"):
                             os.remove(file_path)
                             st.session_state[f"confirm_delete_{f}"] = False
                             st.rerun()
-                        if col_d2.button("Abbrechen", key=f"can_del_{f}"):
+                        if cd2.button("Abbrechen", key=f"can_del_{f}"):
                             st.session_state[f"confirm_delete_{f}"] = False
                             st.rerun()
             else:
@@ -175,6 +177,9 @@ if conn:
                 st.success("✅ Update erfolgreich!")
                 subprocess.run(["systemctl", "restart", "hausverwaltung.service"])
         except Exception as e:
-            st.error(f"Update fehlgeschlagen: {e}")
+            st.error(f"Fehler: {e}")
 
+    cur.close()
     conn.close()
+else:
+    st.error("❌ Datenbankverbindung fehlgeschlagen.")
