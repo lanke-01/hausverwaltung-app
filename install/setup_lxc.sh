@@ -117,6 +117,17 @@ EOF"
 
 pct exec $CTID -- bash -c "systemctl daemon-reload && systemctl enable hausverwaltung.service && systemctl restart hausverwaltung.service"
 
+
+# --- BACKUP SYSTEM EINRICHTEN ---
+# Skript ausführbar machen
+pct exec $CTID -- chmod +x /opt/hausverwaltung/install/backup_db.sh
+
+# Cronjob erstellen (täglich um 03:00 Uhr)
+pct exec $CTID -- bash -c "(crontab -l 2>/dev/null; echo '0 3 * * * /opt/hausverwaltung/install/backup_db.sh') | crontab -"
+
+
+
+
 # 11. Abschluss
 IP_ADDRESS=$(pct exec $CTID -- hostname -I | awk '{print $1}')
 echo ""
@@ -124,3 +135,4 @@ echo "================================================================="
 echo " 🎉 INSTALLATION FERTIG!"
 echo " URL: http://$IP_ADDRESS:8501"
 echo "================================================================="
+
