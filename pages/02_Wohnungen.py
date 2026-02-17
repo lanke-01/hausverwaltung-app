@@ -42,8 +42,8 @@ if conn:
                             new_name = st.text_input("Bezeichnung", value=current_data[0])
                             new_size = st.number_input("Fläche (m²)", value=float(current_data[1]), step=0.1)
                         with col2:
-                            new_rent = st.number_input("Kaltmiete (€)", value=float(current_data[2]), step=1.0)
-                            new_prepay = st.number_input("NK-Vorauszahlung (€)", value=float(current_data[3]), step=1.0)
+                            new_rent = st.number_input("Kaltmiete (Euro)", value=float(current_data[2]), step=1.0)
+                            new_prepay = st.number_input("NK-Vorauszahlung (Euro)", value=float(current_data[3]), step=1.0)
                         
                         btn_save, btn_delete = st.columns([1, 1])
                         
@@ -84,8 +84,8 @@ if conn:
                     n_name = st.text_input("Bezeichnung (z.B. Wohnung 5)")
                     n_size = st.number_input("Fläche (m²)", min_value=0.0, step=0.1)
                 with c2:
-                    n_rent = st.number_input("Kaltmiete (€)", min_value=0.0, step=1.0)
-                    n_prepay = st.number_input("NK-Vorauszahlung (€)", min_value=0.0, step=1.0)
+                    n_rent = st.number_input("Kaltmiete (Euro)", min_value=0.0, step=1.0)
+                    n_prepay = st.number_input("NK-Vorauszahlung (Euro)", min_value=0.0, step=1.0)
                     
                 if st.form_submit_button("Anlegen"):
                     cur.execute("""
@@ -105,8 +105,8 @@ if conn:
             SELECT id as "ID", 
                    unit_name as "Einheit", 
                    size_sqm as "m²", 
-                   base_rent as "Kalt (€)", 
-                   service_charge_propayment as "NK-Vorschuss (€)"
+                   base_rent as "Kalt (Euro)", 
+                   service_charge_propayment as "NK-Vorschuss (Euro)"
             FROM apartments 
             ORDER BY unit_name ASC
         """, conn)

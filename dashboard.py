@@ -24,7 +24,7 @@ def show_dashboard():
             WHERE period_month = %s AND period_year = %s;
         """, (current_month, current_year))
         total = cur.fetchone()[0] or 0.0
-        print(f"💰 Einnahmen diesen Monat: {total:.2f} €")
+        print(f"💰 Einnahmen diesen Monat: {total:.2f} Euro")
 
         # 2. Mieter mit Zahlungsrückstand finden
         # Wir vergleichen die Summe der Zahlungen (Ist) mit der base_rent (Soll)
@@ -55,7 +55,7 @@ def show_dashboard():
                 vorname, nachname, soll, ist = d
                 offen = soll - ist
                 print(f"   ❌ {vorname} {nachname}:")
-                print(f"      Noch {offen:.2f} € offen (Soll: {soll:.2f} € | Gezahlt: {ist:.2f} €)")
+                print(f"      Noch {offen:.2f} Euro offen (Soll: {soll:.2f} Euro | Gezahlt: {ist:.2f} Euro)")
 
         print(f"\n==========================================")
 

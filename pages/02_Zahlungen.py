@@ -38,7 +38,7 @@ if conn:
                         cur.execute("SELECT base_rent + service_charge_propayment FROM apartments a JOIN tenants t ON t.apartment_id = a.id WHERE t.id = %s", (tid,))
                         suggested_amount = float(cur.fetchone()[0] or 0.0)
                         
-                        amount = st.number_input("Eingegangener Betrag (€)", min_value=0.0, value=suggested_amount, step=10.0)
+                        amount = st.number_input("Eingegangener Betrag (Euro)", min_value=0.0, value=suggested_amount, step=10.0)
                     
                     with col2:
                         p_month = st.selectbox("Für Monat", range(1, 13), index=datetime.now().month - 1)
@@ -66,7 +66,7 @@ if conn:
         
         query = """
             SELECT p.id, t.first_name || ' ' || t.last_name as Mieter, 
-                   p.amount as "Betrag (€)", p.period_month as Monat, 
+                   p.amount as "Betrag (Euro)", p.period_month as Monat, 
                    p.period_year as Jahr, p.payment_date as "Eingang am"
             FROM payments p
             JOIN tenants t ON p.tenant_id = t.id
@@ -79,8 +79,8 @@ if conn:
             st.dataframe(df_pay, use_container_width=True, hide_index=True)
             
             # Summe anzeigen
-            total_received = df_pay["Betrag (€)"].sum()
-            st.metric(f"Gesamteinnahmen {view_year}", f"{total_received:.2f} €")
+            total_received = df_pay["Betrag (Euro)"].sum()
+            st.metric(f"Gesamteinnahmen {view_year}", f"{total_received:.2f} Euro")
             
             # Lösch-Option
             with st.expander("🗑️ Fehlbuchung entfernen"):

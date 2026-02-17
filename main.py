@@ -50,7 +50,7 @@ if conn:
         query_missing = """
             SELECT t.first_name || ' ' || t.last_name as Mieter, 
                    a.unit_name as Wohnung, 
-                   (a.base_rent + a.service_charge_propayment) as "Soll-Miete (€)"
+                   (a.base_rent + a.service_charge_propayment) as "Soll-Miete (Euro)"
             FROM tenants t
             JOIN apartments a ON t.apartment_id = a.id
             WHERE t.moved_out IS NULL
@@ -78,11 +78,11 @@ if conn:
             """, (current_month, current_year))
             ist_summe = float(cur.fetchone()[0] or 0.0)
             
-            soll_summe = df_missing["Soll-Miete (€)"].sum() + ist_summe
+            soll_summe = df_missing["Soll-Miete (Euro)"].sum() + ist_summe
             
             st.write("**Finanz-Check**")
-            st.write(f"Soll-Einnahmen: {soll_summe:.2f} €")
-            st.write(f"Ist-Einnahmen: {ist_summe:.2f} €")
+            st.write(f"Soll-Einnahmen: {soll_summe:.2f} Euro")
+            st.write(f"Ist-Einnahmen: {ist_summe:.2f} Euro")
             
             progress = (ist_summe / soll_summe) if soll_summe > 0 else 0
             st.progress(progress)
@@ -93,7 +93,7 @@ if conn:
         # --- 3. LETZTE AKTIVITÄTEN ---
         st.subheader("🕒 Letzte Zahlungseingänge")
         df_recent = pd.read_sql("""
-            SELECT t.last_name as Mieter, p.amount as "Betrag (€)", p.payment_date as Datum
+            SELECT t.last_name as Mieter, p.amount as "Betrag (Euro)", p.payment_date as Datum
             FROM payments p
             JOIN tenants t ON p.tenant_id = t.id
             ORDER BY p.payment_date DESC LIMIT 5

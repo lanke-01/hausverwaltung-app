@@ -114,8 +114,8 @@ if conn:
                         st.write(f"**Fläche:** {t_size} m²")
                         st.write(f"**Einzug:** {t_in}")
                     with c2:
-                        st.write(f"**Kaltmiete:** {t_rent:.2f} €")
-                        st.write(f"**NK-Vorauszahlung:** {t_prepay:.2f} €")
+                        st.write(f"**Kaltmiete:** {t_rent:.2f} Euro")
+                        st.write(f"**NK-Vorauszahlung:** {t_prepay:.2f} Euro")
 
                 with tab_billing:
                     jahr = st.selectbox("Abrechnungsjahr", [2024, 2025, 2026], index=0)
@@ -149,8 +149,8 @@ if conn:
                         voraus_ist = ((float(t_prepay) * 12) / 365) * tage
                         diff = voraus_ist - total_share
                         
-                        st.metric("Geleistete Vorauszahlung", f"{voraus_ist:.2f} €")
-                        st.metric("Ergebnis", f"{diff:.2f} €", delta=round(diff, 2))
+                        st.metric("Geleistete Vorauszahlung", f"{voraus_ist:.2f} Euro")
+                        st.metric("Ergebnis", f"{diff:.2f} Euro", delta=round(diff, 2))
                         
                         # PDF Button
                         pdf_bytes = create_pdf(l_data, f"{t_fn} {t_ln}", t_apt, f"{calc_start}-{calc_ende}", tage, billing_rows, total_share, voraus_ist, diff)

@@ -28,7 +28,7 @@ vacant_count = cur.fetchone()[0]
 
 # Metriken anzeigen
 col1, col2 = st.columns(2)
-col1.metric("Einnahmen (Feb. 2026)", f"{total_income:.2f} €")
+col1.metric("Einnahmen (Feb. 2026)", f"{total_income:.2f} Euro")
 col2.metric("Freie Wohnungen", vacant_count)
 
 st.divider()

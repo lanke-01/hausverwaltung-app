@@ -33,7 +33,7 @@ if conn:
                         "Gartenpflege",
                         "Sonstiges"
                     ])
-                    e_amount = st.number_input("Gesamtbetrag Haus (€)", min_value=0.0, step=0.01, format="%.2f")
+                    e_amount = st.number_input("Gesamtbetrag Haus (Euro)", min_value=0.0, step=0.01, format="%.2f")
                     
                 with col2:
                     e_year = st.selectbox("Abrechnungsjahr", [2024, 2025, 2026], index=2)
@@ -69,12 +69,12 @@ if conn:
         if not df_exp.empty:
             # Tabelle verschönern
             df_display = df_exp.copy()
-            df_display.columns = ["ID", "Kostenart", "Betrag (€)", "Schlüssel-Code"]
+            df_display.columns = ["ID", "Kostenart", "Betrag (Euro)", "Schlüssel-Code"]
             st.dataframe(df_display, use_container_width=True, hide_index=True)
             
             # Summen-Anzeige
             total_sum = df_exp["amount"].sum()
-            st.metric(f"Gesamtsumme Haus {filter_year}", f"{total_sum:.2f} €")
+            st.metric(f"Gesamtsumme Haus {filter_year}", f"{total_sum:.2f} Euro")
 
             # Lösch-Funktion
             with st.expander("🗑️ Eintrag löschen"):

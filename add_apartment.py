@@ -4,7 +4,7 @@ def add_new_apartment():
     print("--- Neue Wohnung anlegen ---")
     name = input("Bezeichnung (z.B. OG rechts): ")
     sqm = float(input("Größe in m²: "))
-    rent = float(input("Kaltmiete in €: "))
+    rent = float(input("Kaltmiete in Euro: "))
 
     try:
         # Tipp: Wir lassen host weg, um den lokalen Socket zu nutzen (einfacher)

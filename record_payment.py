@@ -4,7 +4,7 @@ from datetime import datetime
 def record_payment():
     print("--- Mietzahlung erfassen ---")
     t_id = input("Mieter-ID: ")
-    amount = float(input("Betrag in €: "))
+    amount = float(input("Betrag in Euro: "))
     month = int(input("Für Monat (1-12): "))
     year = datetime.now().year
 
@@ -19,7 +19,7 @@ def record_payment():
         cur.execute(query, (t_id, amount, month, year))
         conn.commit()
 
-        print(f"✅ Zahlung von {amount}€ für Monat {month}/{year} wurde gespeichert.")
+        print(f"✅ Zahlung von {amount}Euro für Monat {month}/{year} wurde gespeichert.")
 
         cur.close()
         conn.close()
