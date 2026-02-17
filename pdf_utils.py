@@ -51,7 +51,7 @@ def generate_nebenkosten_pdf(landlord_data, mieter_name, wohnung, zeitraum, tage
         pdf.cell(c2, 6, l2, 0)
         pdf.cell(v2, 6, str(v2_val), 1)
 
-    row("Ihr Nutzungszeitraum:", zeitraum, "Abrechnungszeitraum:", zeitraum)
+    row("Ihr Nutzungszeit:", zeitraum, "Abrechnungszeit:", zeitraum)
     row("Ihre Nutzungstage:", tage, "Abrechnungstage:", "365")
     row("Fläche Ihrer Wohnung:", f"{m_stats['area']} m2", "Gesamtfläche Haus:", f"{h_stats['area']} m2")
     row("Personen (Ihr Haushalt):", m_stats['pers'], "Wohneinheiten Haus:", h_stats['units'])
