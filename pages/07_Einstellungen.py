@@ -7,7 +7,7 @@ from datetime import datetime
 
 # --- SEITEN-KONFIGURATION ---
 st.set_page_config(page_title="Einstellungen", layout="wide")
-st.title("⚙️ Vermieter-Einstellungen & System")
+st.title("⚙️ Einstellungen & System")
 
 conn = get_conn()
 
