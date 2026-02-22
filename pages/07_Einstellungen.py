@@ -2,19 +2,26 @@ import streamlit as st
 import subprocess
 import os
 import shutil
-from database import get_conn, get_db_config
+from database import get_conn
 from datetime import datetime
+from dotenv import load_dotenv
 
 # --- SEITEN-KONFIGURATION ---
 st.set_page_config(page_title="Einstellungen", layout="wide")
 st.title("⚙️ Einstellungen & System")
+
+# .env laden für Backup-Funktionen
+load_dotenv()
+DB_NAME = os.getenv("DB_NAME", "hausverwaltung")
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASS = os.getenv("DB_PASS", "")
+DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
 
 BACKUP_DIR = "/opt/hausverwaltung/backups"
 if not os.path.exists(BACKUP_DIR):
     os.makedirs(BACKUP_DIR)
 
 conn = get_conn()
-db_conf = get_db_config() # Nutzt die sichere Methode aus database.py
 
 if conn:
     cur = conn.cursor()
@@ -72,8 +79,8 @@ if conn:
             fname = f"backup_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.sql"
             path = os.path.join(BACKUP_DIR, fname)
             env = os.environ.copy()
-            env["PGPASSWORD"] = db_conf["password"]
-            cmd = f"pg_dump -h {db_conf['host']} -U {db_conf['user']} -d {db_conf['dbname']} -f '{path}'"
+            env["PGPASSWORD"] = DB_PASS
+            cmd = f"pg_dump -h {DB_HOST} -U {DB_USER} -d {DB_NAME} -f '{path}'"
             res = subprocess.run(cmd, shell=True, capture_output=True, text=True, env=env)
             if res.returncode == 0: st.success(f"Backup erstellt: {fname}")
             else: st.error(f"Fehler: {res.stderr}")
@@ -94,11 +101,13 @@ if conn:
             if st.button("⚠️ Restore jetzt starten", type="primary"):
                 f_path = os.path.join(BACKUP_DIR, selected_backup)
                 env = os.environ.copy()
-                env["PGPASSWORD"] = db_conf["password"]
+                env["PGPASSWORD"] = DB_PASS
                 with st.spinner("Wiederherstellung läuft..."):
-                    kick = f"psql -h {db_conf['host']} -U {db_conf['user']} -d postgres -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='{db_conf['dbname']}' AND pid <> pg_backend_pid();\""
+                    # Verbindungen kicken (ohne sudo)
+                    kick = f"psql -h {DB_HOST} -U {DB_USER} -d postgres -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='{DB_NAME}' AND pid <> pg_backend_pid();\""
                     subprocess.run(kick, shell=True, env=env)
-                    res_cmd = f"dropdb -h {db_conf['host']} -U {db_conf['user']} --if-exists {db_conf['dbname']} && createdb -h {db_conf['host']} -U {db_conf['user']} {db_conf['dbname']} && psql -h {db_conf['host']} -U {db_conf['user']} -d {db_conf['dbname']} -f '{f_path}'"
+                    
+                    res_cmd = f"dropdb -h {DB_HOST} -U {DB_USER} --if-exists {DB_NAME} && createdb -h {DB_HOST} -U {DB_USER} {DB_NAME} && psql -h {DB_HOST} -U {DB_USER} -d {DB_NAME} -f '{f_path}'"
                     res = subprocess.run(res_cmd, shell=True, capture_output=True, env=env)
                     if res.returncode == 0:
                         st.success("✅ Datenbank wiederhergestellt!")
@@ -109,19 +118,19 @@ if conn:
 
     st.divider()
 
-    # --- 3. SOFTWARE-UPDATE (GIT PULL) ---
+    # --- 3. SOFTWARE-UPDATE (OHNE SUDO) ---
     st.subheader("🚀 System-Update")
-    st.write("Lade die neuesten Funktionen direkt von GitHub.")
+    st.write("Lade die neuesten Funktionen von GitHub.")
     if st.button("Update von GitHub laden"):
         try:
-            # -C /opt/hausverwaltung führt den git Befehl im richtigen Verzeichnis aus
+            # git pull ohne sudo
             update_result = subprocess.run(["git", "-C", "/opt/hausverwaltung", "pull"], capture_output=True, text=True)
             if "Already up to date" in update_result.stdout:
-                st.info("ℹ️ Die Software ist bereits auf dem neuesten Stand.")
+                st.info("ℹ️ Die Software ist bereits aktuell.")
             else:
-                st.success("✅ Update erfolgreich heruntergeladen!")
-                # Optional: Neustart des Services (benötigt sudo-Rechte für den App-User)
-                subprocess.run(["sudo", "systemctl", "restart", "hausverwaltung.service"])
+                st.success("✅ Update erfolgreich!")
+                # Neustart des Services (versuchen wir ohne sudo)
+                subprocess.run(["systemctl", "restart", "hausverwaltung.service"])
                 st.info("System wird neu gestartet...")
         except Exception as e:
             st.error(f"Update fehlgeschlagen: {e}")
