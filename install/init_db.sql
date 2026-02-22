@@ -44,12 +44,15 @@ CREATE TABLE payments (
     payment_date DATE
 );
 
+-- Tabelle für Zähler (inkl. Wallbox-Unterstützung)
 CREATE TABLE meters (
     id SERIAL PRIMARY KEY,
     apartment_id INTEGER REFERENCES apartments(id),
     meter_type VARCHAR(50),
     meter_number VARCHAR(100),
-    unit VARCHAR(20) DEFAULT 'kWh'
+    unit VARCHAR(20) DEFAULT 'kWh',
+    is_submeter BOOLEAN DEFAULT FALSE,       -- Neu für Wallbox
+    parent_meter_id INTEGER                  -- Neu für Verknüpfung
 );
 
 CREATE TABLE meter_readings (

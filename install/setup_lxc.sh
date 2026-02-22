@@ -65,23 +65,23 @@ pct exec $CTID -- bash -c "su - postgres -c 'psql -c \"CREATE DATABASE hausverwa
 # Führt deine init_db.sql aus dem /install Unterordner aus
 pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/install/init_db.sql'"
 
-# 7. FINALER FIX: Alle fehlenden Spalten erzwingen (Sync mit Python-Code)
-echo "--- Synchronisiere Datenbank-Spalten mit Python-Code ---"
+# 7. FINALER FIX: Alle fehlenden Spalten erzwingen
+echo "--- Synchronisiere Datenbank-Spalten (Wallbox-Update) ---"
 pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -c '
--- Fix für Mieterverwaltung (Anzahl Personen)
+-- Bestehende Fixes
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS occupants INTEGER DEFAULT 1;
 
--- Fix für Einstellungen (Zeitstempel)
-ALTER TABLE landlord_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
-INSERT INTO landlord_settings (id, name) SELECT 1, '\''Vermieter Name'\'' WHERE NOT EXISTS (SELECT 1 FROM landlord_settings);
+-- NEU: Wallbox-Fixes für Zähler
+ALTER TABLE meters ADD COLUMN IF NOT EXISTS is_submeter BOOLEAN DEFAULT FALSE;
+ALTER TABLE meters ADD COLUMN IF NOT EXISTS parent_meter_id INTEGER;
 
--- Fix für Haus-Ausgaben (Korrektur der Spaltennamen für das Formular)
+-- Fix für Betriebskosten (Stichwort: operating_expenses vs expenses)
 CREATE TABLE IF NOT EXISTS operating_expenses (
-    id SERIAL PRIMARY KEY, 
-    expense_type VARCHAR(255), 
-    amount NUMERIC(10,2), 
-    expense_year INTEGER, 
-    distribution_key VARCHAR(50), 
+    id SERIAL PRIMARY KEY,
+    expense_type VARCHAR(255),
+    amount NUMERIC(10,2),
+    expense_year INTEGER,
+    distribution_key VARCHAR(50),
     created_at TIMESTAMP DEFAULT NOW()
 );
 '\""
