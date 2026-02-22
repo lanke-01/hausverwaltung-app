@@ -31,7 +31,11 @@ if conn:
         cur.execute("ALTER TABLE landlord_settings ADD COLUMN IF NOT EXISTS total_area NUMERIC(10,2) DEFAULT 0.00")
         cur.execute("ALTER TABLE landlord_settings ADD COLUMN IF NOT EXISTS total_occupants INTEGER DEFAULT 1")
         cur.execute("ALTER TABLE landlord_settings ADD COLUMN IF NOT EXISTS total_units INTEGER DEFAULT 1")
-        conn.commit()
+        cur.execute("ALTER TABLE meters ADD COLUMN IF NOT EXISTS is_submeter BOOLEAN DEFAULT FALSE")
+        cur.execute("ALTER TABLE meters ADD COLUMN IF NOT EXISTS parent_meter_id INTEGER")
+
+
+conn.commit()
     except Exception:
         conn.rollback()
 
