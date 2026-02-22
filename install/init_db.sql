@@ -1,9 +1,11 @@
+-- init_db.sql
 DROP TABLE IF EXISTS meter_readings CASCADE;
 DROP TABLE IF EXISTS meters CASCADE;
 DROP TABLE IF EXISTS payments CASCADE;
 DROP TABLE IF EXISTS tenants CASCADE;
 DROP TABLE IF EXISTS apartments CASCADE;
 DROP TABLE IF EXISTS landlord_settings CASCADE;
+DROP TABLE IF EXISTS operating_expenses CASCADE;
 
 CREATE TABLE landlord_settings (
     id SERIAL PRIMARY KEY, 
@@ -12,7 +14,7 @@ CREATE TABLE landlord_settings (
     city VARCHAR(255), 
     iban VARCHAR(50), 
     bank_name VARCHAR(255),
-    updated_at TIMESTAMP DEFAULT NOW() -- DIESES FELD FEHLTE!
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE TABLE apartments (
@@ -30,9 +32,10 @@ CREATE TABLE tenants (
     last_name VARCHAR(255),
     moved_in DATE,
     moved_out DATE,
-    occupants INTEGER DEFAULT 1, -- DIESE ZEILE FEHLTE!
+    occupants INTEGER DEFAULT 1,
     phone VARCHAR(50),
-    email VARCHAR(255)
+    email VARCHAR(255),
+    monthly_prepayment NUMERIC(10,2) DEFAULT 0
 );
 
 CREATE TABLE payments (
@@ -50,8 +53,8 @@ CREATE TABLE meters (
     meter_type VARCHAR(50),
     meter_number VARCHAR(100),
     unit VARCHAR(20) DEFAULT 'kWh',
-    is_submeter BOOLEAN DEFAULT FALSE,  -- Für Wallbox
-    parent_meter_id INTEGER             -- Verknüpfung zum Hauptzähler
+    is_submeter BOOLEAN DEFAULT FALSE, -- Wallbox-Flag
+    parent_meter_id INTEGER             -- Verknüpfung zu Hauptzähler
 );
 
 CREATE TABLE meter_readings (
@@ -62,11 +65,11 @@ CREATE TABLE meter_readings (
     comment TEXT
 );
 
-CREATE TABLE IF NOT EXISTS operating_expenses (
+CREATE TABLE operating_expenses (
     id SERIAL PRIMARY KEY,
     expense_type VARCHAR(255),
     amount NUMERIC(10,2),
-    expense_year INTEGER,            -- Hier: expense_year statt billing_year
+    expense_year INTEGER,
     distribution_key VARCHAR(50),
     created_at TIMESTAMP DEFAULT NOW()
 );
