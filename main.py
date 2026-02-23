@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from database import get_conn  # Zentraler Import
-
+#test
 # --- SEITEN-KONFIGURATION ---
 st.set_page_config(page_title="Hausverwaltung Dashboard", layout="wide")
 
