@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from database import get_conn  # Zentraler Datenbank-Import
+from database import get_conn  # Zentraler Datenbank-Importt
 
 st.set_page_config(page_title="Zahlungseingänge", layout="wide")
 
