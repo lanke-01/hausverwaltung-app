@@ -9,7 +9,7 @@ CREATE TABLE apartments (
 -- 2. Den Mietern eine Wohnungs-ID hinzufügen
 ALTER TABLE tenants ADD COLUMN apartment_id INTEGER REFERENCES apartments(id);
 
--- 3. Beispiel-Wohnung anlegen
+-- 3. Beispiel-Wohnung anlege
 INSERT INTO apartments (unit_name, size_sqm, base_rent) 
 VALUES ('EG links', 65.50, 550.00);
 

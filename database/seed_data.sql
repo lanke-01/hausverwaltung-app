@@ -15,7 +15,7 @@ INSERT INTO cost_types (name, distribution_key) VALUES
 ('Gemeinschaftsantenne / Kabelanschluss', 'unit'),
 ('Wascheinrichtungen', 'unit');
 
--- Beispiel-Objekt für den ersten Start
+-- Beispiel-Objekt für den ersten 
 INSERT INTO properties (name, address) VALUES 
 ('Musterhaus Allee', 'Beispielstraße 42, 12345 Musterstadt');
 
