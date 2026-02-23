@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup_lxc.sh - Komplett-Version inkl. Fixes
+# setup_lxc.sh - Komplett-Version inkl. Tabellen-Fixes
 
 # 1. Nächste freie ID finden
 CTID=$(pvesh get /cluster/nextid)
@@ -57,20 +57,25 @@ systemctl restart postgresql
 pct exec $CTID -- bash -c "su - postgres -c 'psql -c \"CREATE DATABASE hausverwaltung;\"'"
 pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/install/init_db.sql'"
 
-# 7. SCHEMA-UPDATE & FIXES (Wichtig!)
-echo "--- Schema-Anpassungen (unit_id -> apartment_id) ---"
+# 7. SCHEMA-UPDATE & FIXES (Landlord & Tenants Fix)
+echo "--- Schema-Anpassungen ---"
 pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -c '
+  -- Mieter-Tabelle
   ALTER TABLE tenants RENAME COLUMN unit_id TO apartment_id;
+  
+  -- Zähler-Tabelle
   ALTER TABLE meters ADD COLUMN IF NOT EXISTS is_submeter BOOLEAN DEFAULT FALSE; 
   ALTER TABLE meters ADD COLUMN IF NOT EXISTS parent_meter_id INTEGER;
+
+  -- Landlord-Tabelle (Behebt den total_area Fehler)
+  ALTER TABLE landlord_settings ADD COLUMN IF NOT EXISTS total_area NUMERIC(10,2) DEFAULT 0;
+  ALTER TABLE landlord_settings ADD COLUMN IF NOT EXISTS total_occupants INTEGER DEFAULT 0;
 '\"" 2>/dev/null
 
-# 8. DATEI-FIXING (Brechstange: Falls im Git noch unit_id steht)
-echo "--- Code-Patches anwenden ---"
+# 8. DATEI-FIXING (Falls im Git noch unit_id steht)
 pct exec $CTID -- bash -c "find /opt/hausverwaltung -type f -name '*.py' -exec sed -i 's/unit_id/apartment_id/g' {} +"
 
 # 9. BACKUP-ORDNER & RECHTE
-echo "--- System-Verzeichnisse einrichten ---"
 pct exec $CTID -- bash -c "
 mkdir -p /opt/hausverwaltung/backups
 chmod -R 777 /opt/hausverwaltung/backups
@@ -82,7 +87,7 @@ chmod +x /opt/hausverwaltung/install/backup_db.sh
 pct exec $CTID -- bash -c "python3 -m venv /opt/hausverwaltung/venv"
 pct exec $CTID -- bash -c "/opt/hausverwaltung/venv/bin/pip install streamlit pandas psycopg2-binary fpdf python-dotenv"
 
-# 11. Autostart Service (Optimiert für Update-Button)
+# 11. Autostart Service
 pct exec $CTID -- bash -c "cat <<EOF > /etc/systemd/system/hausverwaltung.service
 [Unit]
 Description=Streamlit Hausverwaltung
@@ -103,6 +108,5 @@ pct exec $CTID -- bash -c "systemctl daemon-reload && systemctl enable hausverwa
 
 IP_ADDRESS=$(pct exec $CTID -- hostname -I | awk '{print $1}')
 echo "-------------------------------------------------------"
-echo "✅ FERTIG! LXC ID: $CTID"
-echo "URL: http://$IP_ADDRESS:8501"
+echo "✅ FERTIG! URL: http://$IP_ADDRESS:8501"
 echo "-------------------------------------------------------"
