@@ -10,7 +10,7 @@ if conn:
     try:
         cur = conn.cursor()
         
-        # Bereich: Neue Wohnung
+        # Bereich: Neue Wohnungen
         with st.expander("➕ Neue Wohnung anlegen"):
             with st.form("add_apt"):
                 n_name = st.text_input("Name der Einheit (z.B. EG links)")
