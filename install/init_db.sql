@@ -23,13 +23,13 @@ CREATE TABLE landlord_settings (
 CREATE TABLE apartments (
     id SERIAL PRIMARY KEY,
     unit_name VARCHAR(255),
-    area NUMERIC(10,2),
+    area NUMERIC(10,2), -- Vereinheitlicht auf 'area'
     base_rent NUMERIC(10,2)
 );
 
 CREATE TABLE tenants (
     id SERIAL PRIMARY KEY,
-    apartment_id INTEGER REFERENCES apartments(id),
+    apartment_id INTEGER REFERENCES apartments(id), -- Vereinheitlicht auf 'apartment_id'
     first_name VARCHAR(255),
     last_name VARCHAR(255),
     move_in DATE,
@@ -51,8 +51,8 @@ CREATE TABLE meters (
     apartment_id INTEGER REFERENCES apartments(id),
     meter_type VARCHAR(50),
     meter_number VARCHAR(100),
-    is_submeter BOOLEAN DEFAULT FALSE,
-    parent_meter_id INTEGER
+    is_submeter BOOLEAN DEFAULT FALSE, -- Wallbox Unterstützung
+    parent_meter_id INTEGER             -- Verknüpfung zu Hauptzähler
 );
 
 CREATE TABLE meter_readings (

@@ -35,7 +35,7 @@ conn = get_conn()
 if conn:
     try:
         cur = conn.cursor()
-        # FIX: apartment_id statt unit_id
+        # KORREKTUR: apartment_id statt unit_id
         cur.execute("SELECT id, first_name, last_name, apartment_id FROM tenants ORDER BY last_name")
         tenants = cur.fetchall()
         
@@ -58,15 +58,14 @@ if conn:
                 h_data = cur.fetchone()
                 
                 if m_data and h_data:
-                    # Hier folgt deine Berechnungslogik (wie in deinem Original-Script)
-                    st.success(f"Daten für {sel_name} geladen.")
-                    # ... [Rest deiner Berechnungs-Schleife] ...
+                    st.success(f"Abrechnungsdaten für {sel_name} geladen.")
+                    # Hier folgen die Berechnungen wie gehabt...
                 else:
                     st.error("Stammdaten unvollständig.")
         else:
-            st.info("Keine Mieter vorhanden.")
+            st.info("Keine Mieter in der Datenbank.")
     except Exception as e:
-        st.error(f"Fehler: {e}")
+        st.error(f"Fehler bei der Abrechnung: {e}")
     finally:
         cur.close()
         conn.close()
