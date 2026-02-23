@@ -21,17 +21,33 @@ if not conn:
 else:
     cur = conn.cursor()
 
-    # --- AUTO-REPAIR: SICHERSTELLEN DASS TABELLE KORREKT IST ---
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS apartments (
-            id SERIAL PRIMARY KEY,
-            unit_name VARCHAR(255) NOT NULL,
-            area NUMERIC(10,2) DEFAULT 0,
-            base_rent NUMERIC(10,2) DEFAULT 0,
-            service_charge_prepayment NUMERIC(10,2) DEFAULT 0
-        )
-    """)
-    conn.commit()
+    # --- AUTO-REPAIR & MIGRATION ---
+    # Wir stellen sicher, dass die Tabelle existiert und alle Spalten richtig heißen
+    try:
+        cur.execute("CREATE TABLE IF NOT EXISTS apartments (id SERIAL PRIMARY KEY, unit_name VARCHAR(255))")
+        
+        # Spalten einzeln prüfen und ggf. hinzufügen oder umbenennen
+        # 1. area (Fläche)
+        cur.execute("ALTER TABLE apartments ADD COLUMN IF NOT EXISTS area NUMERIC(10,2) DEFAULT 0")
+        # 2. base_rent (Kaltmiete)
+        cur.execute("ALTER TABLE apartments ADD COLUMN IF NOT EXISTS base_rent NUMERIC(10,2) DEFAULT 0")
+        
+        # 3. Spezialfall: service_charge_prepayment (NK-Vorschuss)
+        # Wir prüfen, ob die Spalte existiert. Wenn nicht, schauen wir nach 'utilities' oder 'service_charge_propayment'
+        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='apartments'")
+        existing_cols = [row[0] for row in cur.fetchall()]
+        
+        if 'service_charge_prepayment' not in existing_cols:
+            if 'utilities' in existing_cols:
+                cur.execute("ALTER TABLE apartments RENAME COLUMN utilities TO service_charge_prepayment")
+            elif 'service_charge_propayment' in existing_cols:
+                cur.execute("ALTER TABLE apartments RENAME COLUMN service_charge_propayment TO service_charge_prepayment")
+            else:
+                cur.execute("ALTER TABLE apartments ADD COLUMN service_charge_prepayment NUMERIC(10,2) DEFAULT 0")
+        
+        conn.commit()
+    except Exception as e:
+        st.error(f"Fehler bei Tabellen-Update: {e}")
 
     # --- NEUE WOHNUNG ANLEGEN ---
     with st.expander("➕ Neue Wohneinheit anlegen"):
@@ -54,14 +70,13 @@ else:
                     st.success("Wohnung erfolgreich hinzugefügt!")
                     st.rerun()
                 else:
-                    st.warning("Bitte einen Namen angeben.")
+                    st.warning("Bitte einen Namen für die Einheit angeben.")
 
     st.divider()
 
     # --- ÜBERSICHT ---
     st.subheader("Bestandsliste")
     
-    # Hier nutzen wir 'area' statt 'size_sqm' und 'prepayment' statt 'propayment'
     query = """
         SELECT 
             id as "ID", 
@@ -81,8 +96,6 @@ else:
             st.info("Noch keine Wohnungen angelegt.")
     except Exception as e:
         st.error(f"Ein Fehler ist aufgetreten: {e}")
-        # Falls die Spalte 'service_charge_prepayment' noch falsch geschrieben ist in DB:
-        st.info("💡 Tipp: Falls der Fehler 'service_charge_prepayment' betrifft, prüfen wir das System...")
 
     cur.close()
     conn.close()
