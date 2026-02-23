@@ -5,7 +5,7 @@ def update_database():
         conn = psycopg2.connect(dbname="hausverwaltung", user="postgres")
         cur = conn.cursor()
         
-        # Fügt die Spalte für Nebenkosten-Vorauszahlung hinzu, falls sie fehlt
+        # Fügt die Spaltee für Nebenkosten-Vorauszahlung hinzu, falls sie fehlt
         cur.execute("""
             ALTER TABLE apartments 
             ADD COLUMN IF NOT EXISTS service_charge_propayment DECIMAL(10,2) DEFAULT 0.00;

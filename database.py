@@ -2,7 +2,7 @@ import psycopg2
 
 def get_conn():
     try:
-        # Verbindung über den lokalen Unix-Socket (Standard im LXC)
+        # Verbindung über den lokale Unix-Socket (Standard im LXC)
         conn = psycopg2.connect(
             dbname="hausverwaltung",
             user="postgres",

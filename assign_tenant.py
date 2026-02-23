@@ -5,7 +5,7 @@ def link_tenant_to_apartment():
         conn = psycopg2.connect(dbname="hausverwaltung", user="postgres")
         cur = conn.cursor()
 
-        # 1. Mieter ohne Wohnung anzeigen
+        # 1. Mieter ohne Wohnung anzeigenn
         print("\n--- Mieter ohne Zuordnung ---")
         cur.execute("SELECT id, first_name, last_name FROM tenants WHERE apartment_id IS NULL;")
         tenants = cur.fetchall()
