@@ -1,8 +1,9 @@
 #!/bin/bash
-# setup_lxc.sh
+# setup_lxc.sh - Komplett-Version inkl. Fixes
 
 # 1. Nächste freie ID finden
 CTID=$(pvesh get /cluster/nextid)
+echo "Erstelle neuen LXC mit ID: $CTID"
 
 echo "--- Storage-Konfiguration ---"
 TEMPLATE_STORAGES=($(pvesm status --content vztmpl | awk 'NR>1 {print $1}'))
@@ -44,7 +45,7 @@ pct exec $CTID -- bash -c "update-locale LANG=de_DE.UTF-8"
 # 4. GitHub Projekt laden
 pct exec $CTID -- bash -c "git clone https://github.com/lanke-01/hausverwaltung-app.git /opt/hausverwaltung"
 
-# 5. Datenbank-Konfiguration (Berechtigungen für Streamlit fixen)
+# 5. Datenbank-Konfiguration (Berechtigungen fixen)
 echo "--- Datenbank-Rechte setzen ---"
 pct exec $CTID -- bash -c "
 sed -i 's/local   all             postgres                                peer/local   all             postgres                                trust/' /etc/postgresql/15/main/pg_hba.conf
@@ -56,17 +57,32 @@ systemctl restart postgresql
 pct exec $CTID -- bash -c "su - postgres -c 'psql -c \"CREATE DATABASE hausverwaltung;\"'"
 pct exec $CTID -- bash -c "su - postgres -c 'psql -d hausverwaltung -f /opt/hausverwaltung/install/init_db.sql'"
 
-# 7. Upgrade-Check (Falls init_db.sql alt war)
-pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -c 'ALTER TABLE meters ADD COLUMN IF NOT EXISTS is_submeter BOOLEAN DEFAULT FALSE; ALTER TABLE meters ADD COLUMN IF NOT EXISTS parent_meter_id INTEGER;'\""
+# 7. SCHEMA-UPDATE & FIXES (Wichtig!)
+echo "--- Schema-Anpassungen (unit_id -> apartment_id) ---"
+pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -c '
+  ALTER TABLE tenants RENAME COLUMN unit_id TO apartment_id;
+  ALTER TABLE meters ADD COLUMN IF NOT EXISTS is_submeter BOOLEAN DEFAULT FALSE; 
+  ALTER TABLE meters ADD COLUMN IF NOT EXISTS parent_meter_id INTEGER;
+'\"" 2>/dev/null
 
-# 8. .env generieren
-pct exec $CTID -- bash -c "printf 'DB_NAME=hausverwaltung\nDB_USER=postgres\nDB_PASS=\nDB_HOST=127.0.0.1\nDB_PORT=5432\n' > /opt/hausverwaltung/.env"
+# 8. DATEI-FIXING (Brechstange: Falls im Git noch unit_id steht)
+echo "--- Code-Patches anwenden ---"
+pct exec $CTID -- bash -c "find /opt/hausverwaltung -type f -name '*.py' -exec sed -i 's/unit_id/apartment_id/g' {} +"
 
-# 9. Python Venv
+# 9. BACKUP-ORDNER & RECHTE
+echo "--- System-Verzeichnisse einrichten ---"
+pct exec $CTID -- bash -c "
+mkdir -p /opt/hausverwaltung/backups
+chmod -R 777 /opt/hausverwaltung/backups
+chmod 777 /var/run/postgresql
+chmod +x /opt/hausverwaltung/install/backup_db.sh
+"
+
+# 10. Python Venv & Pakete
 pct exec $CTID -- bash -c "python3 -m venv /opt/hausverwaltung/venv"
 pct exec $CTID -- bash -c "/opt/hausverwaltung/venv/bin/pip install streamlit pandas psycopg2-binary fpdf python-dotenv"
 
-# 10. Autostart Service
+# 11. Autostart Service (Optimiert für Update-Button)
 pct exec $CTID -- bash -c "cat <<EOF > /etc/systemd/system/hausverwaltung.service
 [Unit]
 Description=Streamlit Hausverwaltung
@@ -86,4 +102,7 @@ EOF"
 pct exec $CTID -- bash -c "systemctl daemon-reload && systemctl enable hausverwaltung.service && systemctl restart hausverwaltung.service"
 
 IP_ADDRESS=$(pct exec $CTID -- hostname -I | awk '{print $1}')
-echo "FERTIG! URL: http://$IP_ADDRESS:8501"
+echo "-------------------------------------------------------"
+echo "✅ FERTIG! LXC ID: $CTID"
+echo "URL: http://$IP_ADDRESS:8501"
+echo "-------------------------------------------------------"
