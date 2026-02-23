@@ -1,110 +1,110 @@
 import streamlit as st
+import psycopg2
 import pandas as pd
 from datetime import datetime
-from database import get_conn  # Zentraler Import
 
-# --- SEITEN-KONFIGURATION ---
+# --- VERBINDUNGSFUNKTION ---
+def get_direct_conn():
+    try:
+        conn = psycopg2.connect(dbname="hausverwaltung", user="postgres")
+        conn.set_client_encoding('UTF8')
+        return conn
+    except:
+        return None
+
 st.set_page_config(page_title="Hausverwaltung Dashboard", layout="wide")
 
 st.title("🏠 Hausverwaltung Dashboard")
-st.write(f"Statusübersicht für **{datetime.now().strftime('%B %Y')}**")
+current_month = datetime.now().strftime("%B %Y")
+st.subheader(f"Statusübersicht für {current_month}")
 
-conn = get_conn()
+conn = get_direct_conn()
 
-if conn:
+if not conn:
+    st.error("❌ Keine Verbindung zur Datenbank möglich. Bitte prüfen Sie, ob PostgreSQL läuft.")
+else:
+    cur = conn.cursor()
+
+    # --- KENNZAHLEN BERECHNEN ---
     try:
-        cur = conn.cursor()
+        # 1. Wohnungen & Gesamtfläche (Fix: area statt size_sqm)
+        cur.execute("SELECT SUM(area), COUNT(*) FROM apartments")
+        apt_data = cur.fetchone()
+        total_area = apt_data[0] if apt_data[0] else 0
+        total_apts = apt_data[1] if apt_data[1] else 0
 
-        # --- 1. KENNZAHLEN (METRIKEN) ---
+        # 2. Aktive Mieter
+        cur.execute("SELECT COUNT(*) FROM tenants WHERE move_out IS NULL")
+        active_tenants = cur.fetchone()[0]
+
+        # 3. Monatliche Soll-Miete (Summe der Kaltmieten der aktiven Mieter)
+        # Hinweis: Falls in deiner Tabelle 'base_rent' statt 'rent' steht:
+        cur.execute("""
+            SELECT SUM(a.base_rent) 
+            FROM tenants t 
+            JOIN apartments a ON t.apartment_id = a.id 
+            WHERE t.move_out IS NULL
+        """)
+        target_rent = cur.fetchone()[0] if cur.fetchone() else 0
+        if not target_rent: target_rent = 0
+
+        # 4. Tatsächliche Zahlungen im aktuellen Monat
+        this_month_start = datetime.now().replace(day=1)
+        cur.execute("SELECT SUM(amount) FROM payments WHERE payment_date >= %s", (this_month_start,))
+        actual_rent = cur.fetchone()[0] if cur.fetchone() else 0
+        if not actual_rent: actual_rent = 0
+
+        # --- DASHBOARD LAYOUT (METRIKEN) ---
         col1, col2, col3, col4 = st.columns(4)
         
-        # Gesamtfläche & Einheiten
-        cur.execute("SELECT SUM(size_sqm), COUNT(*) FROM apartments")
-        stats = cur.fetchone()
-        total_sqm = float(stats[0] or 0.0)
-        total_apts = stats[1] or 0
-        
-        # Aktive Mieter
-        cur.execute("SELECT COUNT(*) FROM tenants WHERE moved_out IS NULL")
-        active_tenants = cur.fetchone()[0] or 0
-        
         with col1:
-            st.metric("Gesamtfläche", f"{total_sqm:.2f} qm")
+            st.metric("Wohneinheiten", f"{total_apts}")
         with col2:
-            st.metric("Wohneinheiten", total_apts)
+            st.metric("Gesamtfläche", f"{total_area:,.2f} m²")
         with col3:
-            st.metric("Aktive Mieter", active_tenants)
+            st.metric("Aktive Mieter", f"{active_tenants}")
         with col4:
-            leerstand = total_apts - active_tenants
-            st.metric("Leerstand", leerstand, delta=-leerstand, delta_color="inverse")
+            st.metric("Eingänge (lfd. Monat)", f"{actual_rent:,.2f} €")
 
         st.divider()
 
-        # --- 2. MIET-TRACKER (WER HAT NOCH NICHT GEZAHLT?) ---
-        st.subheader("📌 Mietzahlungen aktueller Monat")
-        
-        current_month = datetime.now().month
-        current_year = datetime.now().year
-        
-        # Abfrage: Alle Mieter, die diesen Monat noch NICHT in der 'payments' Tabelle stehen
-        query_missing = """
-            SELECT t.first_name || ' ' || t.last_name as Mieter, 
-                   a.unit_name as Wohnung, 
-                   (a.base_rent + a.service_charge_propayment) as "Soll-Miete (Euro)"
-            FROM tenants t
-            JOIN apartments a ON t.apartment_id = a.id
-            WHERE t.moved_out IS NULL
-            AND t.id NOT IN (
-                SELECT tenant_id FROM payments 
-                WHERE period_month = %s AND period_year = %s
-            )
-        """
-        df_missing = pd.read_sql(query_missing, conn, params=(current_month, current_year))
-        
-        c_left, c_right = st.columns([2, 1])
-        
-        with c_left:
-            if not df_missing.empty:
-                st.warning(f"⚠️ Folgende {len(df_missing)} Mieter haben diesen Monat noch nicht bezahlt:")
-                st.table(df_missing)
-            else:
-                st.success("✅ Alle Mieter haben für diesen Monat bereits bezahlt!")
+        # --- GRAFIKEN & LISTEN ---
+        c1, c2 = st.columns(2)
 
-        with c_right:
-            # Einnahmen-Statistik
-            cur.execute("""
-                SELECT SUM(amount) FROM payments 
-                WHERE period_month = %s AND period_year = %s
-            """, (current_month, current_year))
-            ist_summe = float(cur.fetchone()[0] or 0.0)
-            
-            soll_summe = df_missing["Soll-Miete (Euro)"].sum() + ist_summe
-            
-            st.write("**Finanz-Check**")
-            st.write(f"Soll-Einnahmen: {soll_summe:.2f} Euro")
-            st.write(f"Ist-Einnahmen: {ist_summe:.2f} Euro")
-            
-            progress = (ist_summe / soll_summe) if soll_summe > 0 else 0
-            st.progress(progress)
-            st.write(f"{progress*100:.1f}% der Mieten sind eingegangen.")
+        with c1:
+            st.subheader("Schnellzugriff: Belegung")
+            query_occ = """
+                SELECT a.unit_name as Einheit, t.last_name as Mieter, t.move_in as Seit
+                FROM apartments a
+                LEFT JOIN tenants t ON a.id = t.apartment_id AND t.move_out IS NULL
+                ORDER BY a.unit_name
+            """
+            df_occ = pd.read_sql(query_occ, conn)
+            st.dataframe(df_occ, use_container_width=True, hide_index=True)
 
-        st.divider()
-
-        # --- 3. LETZTE AKTIVITÄTEN ---
-        st.subheader("🕒 Letzte Zahlungseingänge")
-        df_recent = pd.read_sql("""
-            SELECT t.last_name as Mieter, p.amount as "Betrag (Euro)", p.payment_date as Datum
-            FROM payments p
-            JOIN tenants t ON p.tenant_id = t.id
-            ORDER BY p.payment_date DESC LIMIT 5
-        """, conn)
-        
-        if not df_recent.empty:
-            st.dataframe(df_recent, use_container_width=True, hide_index=True)
+        with c2:
+            st.subheader("Letzte Aktivitäten")
+            query_pay = """
+                SELECT p.payment_date as Datum, t.last_name as Mieter, p.amount as Betrag
+                FROM payments p
+                JOIN tenants t ON p.tenant_id = t.id
+                ORDER BY p.payment_date DESC
+                LIMIT 5
+            """
+            try:
+                df_pay = pd.read_sql(query_pay, conn)
+                if not df_pay.empty:
+                    st.table(df_pay)
+                else:
+                    st.info("Noch keine Zahlungen vorhanden.")
+            except:
+                st.info("Zahlungstabelle noch leer oder im Aufbau.")
 
     except Exception as e:
         st.error(f"Fehler im Dashboard: {e}")
-    finally:
-        conn.close()
-else:
-    st.error("Keine Datenbankverbindung möglich.")
+
+    cur.close()
+    conn.close()
+
+# --- SIDEBAR INFO ---
+st.sidebar.info("📌 **Tipp:** Nutzen Sie das Menü links, um Mieter anzulegen oder Zahlungen zu verbuchen.")
