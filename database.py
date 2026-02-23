@@ -2,13 +2,16 @@ import psycopg2
 
 def get_conn():
     try:
-        # Verbindung über den lokale Unix-Socket (Standard im LXC)
+        # Wir geben NUR den Datenbanknamen und User an.
+        # Ohne 'host' nutzt Python automatisch den lokalen Socket,
+        # genau wie dein erfolgreicher 'psql' Befehl eben.
         conn = psycopg2.connect(
             dbname="hausverwaltung",
-            user="postgres",
-            host="/var/run/postgresql"  # Erzwingt den lokalen Socket
+            user="postgres"
         )
         conn.set_client_encoding('UTF8')
         return conn
     except Exception as e:
+        # Falls es im Streamlit-Log auftaucht
+        print(f"Verbindungsfehler: {e}")
         return None

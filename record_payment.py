@@ -28,5 +28,3 @@ def record_payment():
 
 if __name__ == "__main__":
     record_payment()
-    
-    

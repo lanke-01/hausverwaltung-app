@@ -3,7 +3,7 @@ import psycopg2
 import pandas as pd
 from datetime import datetime
 
-# --- 1. KONFIGURATION --
+# --- 1. KONFIGURATION ---
 st.set_page_config(page_title="Hausverwaltung Dashboard", layout="wide")
 
 def get_conn():

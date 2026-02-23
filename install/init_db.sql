@@ -5,7 +5,7 @@ DROP TABLE IF EXISTS payments CASCADE;
 DROP TABLE IF EXISTS tenants CASCADE;
 DROP TABLE IF EXISTS apartments CASCADE;
 DROP TABLE IF EXISTS landlord_settings CASCADE;
-DROP TABLE IF EXISTS expenses CASCADE;
+DROP TABLE IF EXISTS operating_expenses CASCADE;
 
 CREATE TABLE landlord_settings (
     id SERIAL PRIMARY KEY, 
@@ -14,36 +14,37 @@ CREATE TABLE landlord_settings (
     city VARCHAR(255), 
     iban VARCHAR(50), 
     bank_name VARCHAR(255),
-    total_area NUMERIC(10,2) DEFAULT 0,
-    total_occupants INTEGER DEFAULT 0,
-    total_units INTEGER DEFAULT 0,
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE TABLE apartments (
     id SERIAL PRIMARY KEY,
     unit_name VARCHAR(255),
-    area NUMERIC(10,2), -- Vereinheitlicht auff 'area'
-    base_rent NUMERIC(10,2)
+    size_sqm NUMERIC(10,2),
+    base_rent NUMERIC(10,2),
+    service_charge_propayment NUMERIC(10,2)
 );
 
 CREATE TABLE tenants (
     id SERIAL PRIMARY KEY,
-    apartment_id INTEGER REFERENCES apartments(id), -- Vereinheitlicht auf 'apartment_id'
+    apartment_id INTEGER REFERENCES apartments(id),
     first_name VARCHAR(255),
     last_name VARCHAR(255),
-    move_in DATE,
-    move_out DATE,
+    moved_in DATE,
+    moved_out DATE,
     occupants INTEGER DEFAULT 1,
+    phone VARCHAR(50),
+    email VARCHAR(255),
     monthly_prepayment NUMERIC(10,2) DEFAULT 0
 );
 
-CREATE TABLE expenses (
+CREATE TABLE payments (
     id SERIAL PRIMARY KEY,
-    expense_type VARCHAR(255),
+    tenant_id INTEGER REFERENCES tenants(id),
     amount NUMERIC(10,2),
-    expense_date DATE,
-    created_at TIMESTAMP DEFAULT NOW()
+    period_month INTEGER,
+    period_year INTEGER,
+    payment_date DATE
 );
 
 CREATE TABLE meters (
@@ -51,13 +52,24 @@ CREATE TABLE meters (
     apartment_id INTEGER REFERENCES apartments(id),
     meter_type VARCHAR(50),
     meter_number VARCHAR(100),
-    is_submeter BOOLEAN DEFAULT FALSE, -- Wallbox Unterstützung
+    unit VARCHAR(20) DEFAULT 'kWh',
+    is_submeter BOOLEAN DEFAULT FALSE, -- Wallbox-Flag
     parent_meter_id INTEGER             -- Verknüpfung zu Hauptzähler
 );
 
 CREATE TABLE meter_readings (
     id SERIAL PRIMARY KEY,
     meter_id INTEGER REFERENCES meters(id),
-    reading_date DATE DEFAULT CURRENT_DATE,
-    reading_value NUMERIC(15,3)
+    reading_date DATE,
+    reading_value NUMERIC(15,3),
+    comment TEXT
+);
+
+CREATE TABLE operating_expenses (
+    id SERIAL PRIMARY KEY,
+    expense_type VARCHAR(255),
+    amount NUMERIC(10,2),
+    expense_year INTEGER,
+    distribution_key VARCHAR(50),
+    created_at TIMESTAMP DEFAULT NOW()
 );

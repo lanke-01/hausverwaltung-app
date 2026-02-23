@@ -7,7 +7,7 @@ def show_dashboard():
     current_year = datetime.now().year
 
     try:
-        # Verbindung zur Datenbankk
+        # Verbindung zur Datenbank
         conn = psycopg2.connect(
             dbname="hausverwaltung", 
             user="postgres"

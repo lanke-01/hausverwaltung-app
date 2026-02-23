@@ -14,7 +14,7 @@ CREATE TABLE units (
     square_meters DECIMAL(10, 2) NOT NULL
 );
 
--- 3. Mieter mit Mahnwesen und Rücks
+-- 3. Mieter mit Mahnwesen und Rückstand
 CREATE TABLE tenants (
     id SERIAL PRIMARY KEY,
     unit_id INTEGER REFERENCES units(id),

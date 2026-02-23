@@ -4,7 +4,7 @@ from datetime import datetime, date
 import psycopg2
 from pdf_utils import generate_nebenkosten_pdf
 
-# --- DIREKTE VERBINDUNGSFUNKTION --
+# --- DIREKTE VERBINDUNGSFUNKTION ---
 def get_direct_conn():
     try:
         conn = psycopg2.connect(dbname="hausverwaltung", user="postgres")

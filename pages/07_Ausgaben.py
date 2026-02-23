@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from database import get_conn  # WICHTIG: Nutzt deine neue zentrale Verbindung
 
-# --- SEITEN-KONFIGURATION --
+# --- SEITEN-KONFIGURATION ---
 st.set_page_config(page_title="Haus-Ausgaben erfassen", layout="wide")
 
 st.title("💸 Haus-Ausgaben (Gesamtkosten)")

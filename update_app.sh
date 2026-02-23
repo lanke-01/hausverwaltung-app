@@ -5,7 +5,7 @@ APP_DIR="/opt/hausverwaltung"
 echo "🔄 Suche nach Updates auf GitHub..."
 cd $APP_DIR
 
-# 1. Neuesten Code ladenn
+# 1. Neuesten Code laden
 git pull origin main
 
 # 2. Abhängigkeiten prüfen (falls du neue Bibliotheken hinzugefügt hast)

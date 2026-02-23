@@ -1,7 +1,7 @@
 import streamlit as st
 import psycopg2
 import pandas as pd
-#test
+
 def get_conn():
     conn = psycopg2.connect(dbname="hausverwaltung", user="postgres")
     conn.set_client_encoding('UTF8')

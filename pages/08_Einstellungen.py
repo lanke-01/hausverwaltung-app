@@ -4,7 +4,7 @@ import subprocess
 import os
 from datetime import datetime
 
-# --- VERBINDUNG --
+# --- VERBINDUNG ---
 def get_direct_conn():
     try:
         conn = psycopg2.connect(dbname="hausverwaltung", user="postgres")

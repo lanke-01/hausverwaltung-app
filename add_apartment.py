@@ -7,7 +7,7 @@ def add_new_apartment():
     rent = float(input("Kaltmiete in Euro: "))
 
     try:
-        # Tipp: Wir lasen host weg, um den lokalen Socket zu nutzen (einfacher)
+        # Tipp: Wir lassen host weg, um den lokalen Socket zu nutzen (einfacher)
         conn = psycopg2.connect(
             dbname="hausverwaltung",
             user="postgres"

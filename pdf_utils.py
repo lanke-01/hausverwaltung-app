@@ -6,7 +6,7 @@ class NK_PDF(FPDF):
         self.ld = landlord_data
 
     def header(self):
-        # Briefkopf oben rechtss
+        # Briefkopf oben rechts
         self.set_font('Arial', 'B', 10)
         self.cell(0, 5, f"{self.ld.get('name', '')}", ln=True, align='R')
         self.set_font('Arial', '', 9)

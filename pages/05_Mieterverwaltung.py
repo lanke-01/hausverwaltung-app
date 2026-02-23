@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 from database import get_conn
 
-# --- SEITEN-KONFIGURATION --
+# --- SEITEN-KONFIGURATION ---
 st.set_page_config(page_title="Mieterverwaltung", layout="wide")
 st.title("👥 Mieterverwaltung")
 
