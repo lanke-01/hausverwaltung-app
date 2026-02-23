@@ -23,7 +23,7 @@ CREATE TABLE landlord_settings (
 CREATE TABLE apartments (
     id SERIAL PRIMARY KEY,
     unit_name VARCHAR(255),
-    area NUMERIC(10,2), -- Vereinheitlicht auf 'area'
+    area NUMERIC(10,2), -- Vereinheitlicht auff 'area'
     base_rent NUMERIC(10,2)
 );
 

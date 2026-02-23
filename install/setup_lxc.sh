@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup_lxc.sh - Komplett-Version inkl. Fixes
+# setup_lxc.sh
 
 # 1. Nächste freie ID finden
 CTID=$(pvesh get /cluster/nextid)
