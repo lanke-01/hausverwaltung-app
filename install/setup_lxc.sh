@@ -1,7 +1,20 @@
 #!/bin/bash
-# setup_lxc.sh - Komplett-Fix für Hausverwaltung
 
-# ... (Deine Variablen: CTID, PW, etc. bleiben hier oben stehen) ...
+# 1. CTID automatisch finden (sucht nach dem ersten laufenden Container)
+# Oder du setzt sie fest, falls sie immer gleich ist, z.B. CTID=105
+CTID=$(pct list | awk 'NR>1 {print $1}' | head -n 1)
+
+# Falls keine CTID gefunden wurde, Abfrage starten
+if [ -z "$CTID" ]; then
+    read -p "Bitte die LXC ID eingeben (z.B. 105): " CTID
+fi
+
+echo "Verwende CTID: $CTID"
+
+# --- AB HIER DEIN BESTEHENDER CODE ---
+echo "--- 1. Datenbank-Berechtigungen (Trust) ---"
+pct exec $CTID -- bash -c "
+# ... restlicher Code
 
 echo "--- 1. Datenbank-Berechtigungen (Trust) ---"
 pct exec $CTID -- bash -c "
