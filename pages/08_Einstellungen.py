@@ -76,45 +76,32 @@ else:
                 st.success("✅ Stammdaten gespeichert!")
                 st.rerun()
 
-    # --- TAB 2: SYSTEM & WARTUNG ---
+   # --- TAB 2: SYSTEM & WARTUNG ---
     with tab2:
         st.subheader("🔄 Software-Update")
-        st.info("Dies erzwingt den neuesten Stand von GitHub und startet die App neu.")
         
         if st.button("📥 Update von GitHub erzwingen & Restart"):
-            with st.spinner("Update läuft..."):
-                try:
-                    repo_path = "/opt/hausverwaltung"
-                    
-                    # 1. Git Fetch & Reset (erzwingt GitHub Stand)
-                    subprocess.run(['git', '-C', repo_path, 'fetch', '--all'], check=True)
-                    subprocess.run(['git', '-C', repo_path, 'reset', '--hard', 'origin/main'], check=True)
-                    
-                    # 2. Restart-Logik ohne 'sudo' Abhängigkeit
-                    # Wir versuchen verschiedene Wege, den Dienst neu zu starten
-                    restart_commands = [
-                        ['systemctl', 'restart', 'hausverwaltung.service'],
-                        ['sudo', '/usr/bin/systemctl', 'restart', 'hausverwaltung.service'],
-                        ['/usr/bin/systemctl', 'restart', 'hausverwaltung.service']
-                    ]
-                    
-                    success = False
-                    for cmd in restart_commands:
-                        try:
-                            subprocess.run(cmd, check=True, capture_output=True)
-                            success = True
-                            break
-                        except:
-                            continue
-                    
-                    if success:
-                        st.success("✅ Update erfolgreich! Die Seite lädt neu...")
-                        st.balloons()
-                    else:
-                        st.warning("⚠️ Code aktualisiert, aber Neustart fehlgeschlagen. Bitte LXC-Container manuell neustarten.")
-                        
-                except Exception as e:
-                    st.error(f"Update-Fehler: {e}")
+            status = st.empty()
+            status.info("⏳ Update gestartet...")
+            try:
+                repo_path = "/opt/hausverwaltung"
+                
+                # 1. Git Update
+                status.info("📡 Hole Daten von GitHub...")
+                subprocess.run(['git', '-C', repo_path, 'fetch', '--all'], check=True)
+                subprocess.run(['git', '-C', repo_path, 'reset', '--hard', 'origin/main'], check=True)
+                
+                # 2. Dienst-Neustart
+                status.info("🔄 Starte System neu...")
+                
+                # Wir versuchen es direkt über den Systempfad
+                # Wenn du als root eingeloggt bist, reicht dieser Befehl:
+                subprocess.run(['/usr/bin/systemctl', 'restart', 'hausverwaltung.service'], check=True)
+                
+                st.success("✅ Update erfolgreich! Seite lädt in 5 Sek. neu.")
+                st.balloons()
+            except Exception as e:
+                status.error(f"❌ Fehler: {e}")
         st.divider()
         st.subheader("Letzte Sicherungen")
         backup_path = "/opt/hausverwaltung/backups"
