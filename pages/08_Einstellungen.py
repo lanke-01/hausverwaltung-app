@@ -81,7 +81,7 @@ else:
                 except Exception as e:
                     st.error(f"Fehler: {e}")
 
-        with col_rest:
+       with col_rest:
             st.markdown("### Wiederherstellung")
             uploaded_file = st.file_uploader("Backup-Datei (.sql) hochladen", type=["sql"])
             if uploaded_file is not None:
@@ -92,21 +92,27 @@ else:
                         with open(temp_path, "wb") as f:
                             f.write(uploaded_file.getbuffer())
                         
-                        # Restore-Befehl ausführen (psql nutzt die trust-Verbindung)
+                        # Ausführung als root direkt über psql
+                        # Wir setzen die Umgebungsvariable PGPASSWORD leer, 
+                        # da wir eine lokale Socket-Verbindung erzwingen
                         env = os.environ.copy()
-                        env["PGPASSWORD"] = "" # Nicht nötig bei trust, aber sicherheitshalber
+                        env["PGPASSWORD"] = ""
+                        
+                        # Befehl ohne -h (Host), um den lokalen Unix-Socket zu nutzen (Passwortfrei für root/postgres)
                         res = subprocess.run([
-                            'psql', '-h', 'localhost', '-U', 'postgres', '-d', 'hausverwaltung', '-f', temp_path
-                        ], capture_output=True, text=True)
+                            'psql', '-U', 'postgres', '-d', 'hausverwaltung', '-f', temp_path
+                        ], capture_output=True, text=True, env=env)
                         
                         if res.returncode == 0:
                             st.success("✅ Datenbank wurde erfolgreich wiederhergestellt!")
                             st.balloons()
+                            st.rerun()
                         else:
                             st.error(f"Restore-Fehler: {res.stderr}")
+                            st.info("Tipp: Prüfe, ob die Datenbank 'hausverwaltung' existiert.")
+                                
                     except Exception as e:
                         st.error(f"Systemfehler: {e}")
-
         st.divider()
         st.subheader("Vorhandene Dateien auf dem Server")
         backup_path = "/opt/hausverwaltung/backups"
