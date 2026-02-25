@@ -2,7 +2,7 @@ import streamlit as st
 import psycopg2
 import subprocess
 import os
-from datetime import datetime
+import re
 
 # --- VERBINDUNG ---
 def get_direct_conn():
@@ -16,27 +16,21 @@ def get_direct_conn():
 st.set_page_config(page_title="Einstellungen & System", layout="wide")
 st.title("⚙️ Einstellungen & System")
 
-# Pfad zum Backup-Ordner
 BACKUP_DIR = "/opt/hausverwaltung/backups"
 
-# --- SESSION STATE INITIALISIERUNG ---
 if "restore_mode" not in st.session_state:
     st.session_state.restore_mode = False
-if "restore_msg" not in st.session_state:
-    st.session_state.restore_msg = None
 
 conn = get_direct_conn()
-
 if not conn:
     st.error("❌ Datenbankverbindung fehlgeschlagen.")
 else:
     cur = conn.cursor()
     
-    # Tabelle für Stammdaten sicherstellen
+    # Basistabelle sicherstellen
     cur.execute("""
         CREATE TABLE IF NOT EXISTS landlord_settings (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(255), street VARCHAR(255), city VARCHAR(255),
+            id SERIAL PRIMARY KEY, name VARCHAR(255), street VARCHAR(255), city VARCHAR(255),
             iban VARCHAR(50), bank_name VARCHAR(255), 
             total_area NUMERIC(10,2) DEFAULT 0, total_occupants INTEGER DEFAULT 0
         )
@@ -44,14 +38,11 @@ else:
     cur.execute("INSERT INTO landlord_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING")
     conn.commit()
 
-    # Daten laden
-    cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants FROM landlord_settings WHERE id = 1")
-    data = cur.fetchone()
-
     tab1, tab2, tab3 = st.tabs(["🏠 Stammdaten", "🛠️ System & Wartung", "🗄️ Datenbank-Sicherung"])
 
-    # --- TAB 1: STAMMDATEN ---
     with tab1:
+        cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants FROM landlord_settings WHERE id = 1")
+        data = cur.fetchone()
         with st.form("settings_form"):
             st.subheader("Vermieter-Details")
             c1, c2 = st.columns(2)
@@ -62,15 +53,13 @@ else:
             v_bank = c2.text_input("Bankname", value=data[4] or "")
             v_area = st.number_input("Gesamtfläche Haus (m²)", value=float(data[5] or 0.0))
             v_pers = st.number_input("Gesamtpersonen Haus", value=int(data[6] or 0))
-            
-            if st.form_submit_button("💾 Stammdaten speichern"):
+            if st.form_submit_button("💾 Speichern"):
                 cur.execute("UPDATE landlord_settings SET name=%s, street=%s, city=%s, iban=%s, bank_name=%s, total_area=%s, total_occupants=%s WHERE id = 1",
                             (v_name, v_street, v_city, v_iban, v_bank, v_area, v_pers))
                 conn.commit()
                 st.success("Gespeichert!")
                 st.rerun()
 
-    # --- TAB 2: SYSTEM ---
     with tab2:
         st.subheader("🔄 Software-Update")
         if st.button("📥 Update von GitHub erzwingen"):
@@ -82,20 +71,12 @@ else:
             except Exception as e:
                 st.error(f"Fehler: {e}")
 
-    # --- TAB 3: BACKUP & RESTORE ---
     with tab3:
         st.subheader("🗄️ Datenbank-Verwaltung")
-        
-        if st.session_state.restore_msg:
-            st.info(st.session_state.restore_msg)
-            if st.button("OK"):
-                st.session_state.restore_msg = None
-                st.rerun()
-
         col_back, col_rest = st.columns(2)
         
         with col_back:
-            st.markdown("### 1. Sicherung erstellen")
+            st.markdown("### 1. Sicherung")
             if st.button("🚀 Neues Backup erzeugen"):
                 res = subprocess.run(['/bin/bash', '/opt/hausverwaltung/install/backup_db.sh'], capture_output=True, text=True)
                 if res.returncode == 0:
@@ -103,44 +84,46 @@ else:
                     st.rerun()
 
         with col_rest:
-            st.markdown("### 2. Wiederherstellung (Upload)")
-            
+            st.markdown("### 2. Wiederherstellung")
             if not st.session_state.restore_mode:
                 uploaded_file = st.file_uploader("SQL-Datei hochladen", type=["sql"])
                 if uploaded_file is not None:
-                    if st.button("📂 Datei auf Server speichern"):
-                        if not os.path.exists(BACKUP_DIR):
-                            os.makedirs(BACKUP_DIR)
-                        save_path = os.path.join(BACKUP_DIR, uploaded_file.name)
-                        with open(save_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
+                    if st.button("📂 Datei für Restore vorbereiten"):
+                        if not os.path.exists(BACKUP_DIR): os.makedirs(BACKUP_DIR)
+                        save_path = os.path.join(BACKUP_DIR, "restore_temp.sql")
+                        
+                        # REINIGUNGS-LOGIK: Entfernt \restrict und \unrestrict Zeilen
+                        content = uploaded_file.read().decode("utf-8", errors="ignore")
+                        clean_content = re.sub(r'\\restrict.*', '', content)
+                        clean_content = re.sub(r'\\unrestrict.*', '', clean_content)
+                        
+                        with open(save_path, "w", encoding="utf-8") as f:
+                            f.write(clean_content)
+                        
                         st.session_state.restore_mode = save_path
                         st.rerun()
             else:
-                st.warning(f"Datei geladen: {os.path.basename(st.session_state.restore_mode)}")
-                if st.button("⚠️ JETZT RESTORE STARTEN"):
+                st.warning("⚠️ Datei bereit. Alle aktuellen Daten werden überschrieben!")
+                if st.button("🚀 JETZT RESTORE STARTEN"):
                     try:
-                        # Wir schließen die aktuelle Verbindung, damit psql exklusiven Zugriff hat
                         cur.close()
                         conn.close()
-                        
                         env = os.environ.copy()
                         env["PGPASSWORD"] = ""
+                        # Wir löschen die DB und legen sie neu an für einen sauberen Import
+                        subprocess.run(['psql', '-U', 'postgres', '-d', 'postgres', '-c', 'DROP DATABASE hausverwaltung;'], env=env)
+                        subprocess.run(['psql', '-U', 'postgres', '-d', 'postgres', '-c', 'CREATE DATABASE hausverwaltung;'], env=env)
                         
-                        # Ausführung mit Timeout, damit es nicht ewig hängt
                         res = subprocess.run([
                             'psql', '-U', 'postgres', '-d', 'hausverwaltung', '-f', st.session_state.restore_mode
-                        ], capture_output=True, text=True, env=env, timeout=30)
+                        ], capture_output=True, text=True, env=env)
                         
                         if res.returncode == 0:
-                            st.session_state.restore_msg = "✅ Restore erfolgreich! Die App wurde aktualisiert."
+                            st.success("✅ Restore erfolgreich!")
+                            st.balloons()
                             st.session_state.restore_mode = False
-                            st.rerun()
                         else:
                             st.error(f"Fehler: {res.stderr}")
-                            st.session_state.restore_mode = False
-                    except subprocess.TimeoutExpired:
-                        st.error("❌ Zeitüberschreitung: Der Restore hat zu lange gedauert.")
                     except Exception as e:
                         st.error(f"Fehler: {e}")
                 
@@ -149,18 +132,15 @@ else:
                     st.rerun()
 
         st.divider()
-        st.subheader("Vorhandene Dateien in /opt/hausverwaltung/backups")
-        
+        st.subheader("Backup-Dateien auf dem Server")
         if os.path.exists(BACKUP_DIR):
             files = sorted([f for f in os.listdir(BACKUP_DIR) if f.endswith('.sql')], reverse=True)
             for f in files:
                 full_path = os.path.join(BACKUP_DIR, f)
                 c_file, c_dl, c_del = st.columns([3, 1, 1])
                 c_file.write(f"📄 {f}")
-                
                 with open(full_path, "rb") as file_content:
                     c_dl.download_button("⬇️", file_content, file_name=f, key=f"dl_{f}")
-                
                 if c_del.button("🗑️", key=f"del_{f}"):
                     os.remove(full_path)
                     st.rerun()
