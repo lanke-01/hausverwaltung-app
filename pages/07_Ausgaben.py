@@ -14,11 +14,10 @@ def get_direct_conn():
 st.set_page_config(page_title="Haus-Ausgaben", layout="wide")
 st.title("💸 Haus-Ausgaben (Gesamtkosten)")
 
-# Dictionary für die Übersetzung (Datenbank-Wert : Anzeigename)
 DEUTSCHE_SCHLUESSEL = {
     "area": "m² Wohnfläche",
     "persons": "Anzahl Personen",
-    "unit": "Wohneinheiten (1/6)",
+    "unit": "Wohneinheiten",
     "direct": "Direktzuordnung"
 }
 
@@ -28,84 +27,71 @@ if conn:
     try:
         cur = conn.cursor()
         
+        # Sicherstellen, dass die Tabelle existiert (Selbstheilung)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS operating_expenses (
+                id SERIAL PRIMARY KEY,
+                expense_type VARCHAR(255),
+                amount NUMERIC(12,2),
+                distribution_key VARCHAR(50),
+                expense_year INTEGER,
+                tenant_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+
         # --- ÜBERSICHT ---
         st.subheader("Übersicht der Kosten")
-        f_year = st.selectbox("Jahr filtern", [2023, 2024, 2025, 2026], index=1)
+        f_year = st.selectbox("Jahr filtern", [2024, 2025, 2026], index=0)
 
-        cur.execute("SELECT id, expense_type, amount, distribution_key FROM operating_expenses WHERE expense_year = %s ORDER BY id ASC", (f_year,))
+        # SQL-Abfrage mit JOIN zu den Mietern, um Namen bei Direktzuordnungen zu sehen
+        cur.execute("""
+            SELECT e.id, e.expense_type, e.amount, e.distribution_key, 
+                   t.first_name, t.last_name 
+            FROM operating_expenses e
+            LEFT JOIN tenants t ON e.tenant_id = t.id
+            WHERE e.expense_year = %s 
+            ORDER BY e.id ASC
+        """, (f_year,))
         rows = cur.fetchall()
 
         if rows:
-            df = pd.DataFrame(rows, columns=["ID", "Kostenart", "Gesamtbetrag (€)", "Schlüssel"])
+            # Wir bauen die Liste so um, dass der Mietername in der Spalte "Hinweis/Mieter" erscheint
+            display_data = []
+            for r in rows:
+                mieter_name = f"{r[4]} {r[5]}" if r[4] else "Alle Mieter"
+                display_data.append([r[0], r[1], r[2], DEUTSCHE_SCHLUESSEL.get(r[3], r[3]), mieter_name])
             
-            # Hier übersetzen wir die Schlüssel von 'area' -> 'm² Wohnfläche' usw.
-            df["Schlüssel"] = df["Schlüssel"].map(DEUTSCHE_SCHLUESSEL).fillna(df["Schlüssel"])
-            
-            st.table(df.set_index('ID'))
-            st.metric("Gesamtsumme", f"{df['Gesamtbetrag (€)'].sum():.2f} €")
+            df = pd.DataFrame(display_data, columns=["ID", "Kostenart", "Betrag (€)", "Schlüssel", "Zuordnung"])
+            st.dataframe(df, use_container_width=True, hide_index=True)
         else:
-            st.info(f"Keine Einträge für {f_year} vorhanden.")
+            st.info(f"Noch keine Ausgaben für {f_year} erfasst.")
 
         st.divider()
 
-        # --- AKTIONEN ---
-        col_new, col_edit = st.columns(2)
-
-        with col_new:
-            st.subheader("➕ Neue Rechnung")
-            with st.form("add_form", clear_on_submit=True):
-                new_type = st.selectbox("Kategorie", [
-                    "Grundsteuer", "Kaltwasser", "Entwässerung", 
-                    "Straßenreinigung", "Müllabfuhr", "Hausmeister",
-                    "Hausreinigung", "Gartenpflege", "Allgemeinstrom", 
-                    "Schornsteinreinigung", "Versicherungen", "Sonstiges"
-                ])
-                c_name = st.text_input("Name für Sonstiges")
-                new_amt = st.number_input("Gesamtbetrag (€)", min_value=0.0, step=0.01)
+        # --- NEUE AUSGABE ---
+        with st.expander("➕ Neue Ausgabe hinzufügen"):
+            with st.form("add_expense"):
+                e_type = st.text_input("Kostenart (z.B. Grundsteuer, Wallbox...)")
+                e_amount = st.number_input("Gesamtbetrag (€)", step=0.01)
+                e_key = st.selectbox("Verteilungsschlüssel", list(DEUTSCHE_SCHLUESSEL.keys()), 
+                                    format_func=lambda x: DEUTSCHE_SCHLUESSEL[x])
                 
-                # Auswahl auf Deutsch
-                new_key_label = st.selectbox("Verteilungsschlüssel", list(DEUTSCHE_SCHLUESSEL.values()))
-                # Zurück-Übersetzung für die Datenbank
-                new_key_db = [k for k, v in DEUTSCHE_SCHLUESSEL.items() if v == new_key_label][0]
+                # Mieter-Auswahl, falls "direct" gewählt wird
+                cur.execute("SELECT id, first_name, last_name FROM tenants WHERE move_out IS NULL")
+                tenants = {f"{t[1]} {t[2]}": t[0] for t in cur.fetchall()}
+                target_tenant = st.selectbox("Nur für Mieter (bei Direktzuordnung)", ["Keine / Alle"] + list(tenants.keys()))
                 
                 if st.form_submit_button("Speichern"):
-                    final_n = c_name if new_type == "Sonstiges" and c_name.strip() != "" else new_type
-                    cur.execute("INSERT INTO operating_expenses (expense_type, amount, expense_year, distribution_key) VALUES (%s, %s, %s, %s)", 
-                                (final_n, new_amt, f_year, new_key_db))
+                    t_id = tenants[target_tenant] if target_tenant != "Keine / Alle" else None
+                    cur.execute("""
+                        INSERT INTO operating_expenses (expense_type, amount, distribution_key, expense_year, tenant_id)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (e_type, e_amount, e_key, f_year, t_id))
                     conn.commit()
+                    st.success("Gespeichert!")
                     st.rerun()
-
-        with col_edit:
-            if rows:
-                st.subheader("✏️ Korrigieren / Löschen")
-                ids = [r[0] for r in rows]
-                edit_id = st.selectbox("ID wählen", ids)
-                
-                cur.execute("SELECT expense_type, amount, distribution_key FROM operating_expenses WHERE id = %s", (edit_id,))
-                e_data = cur.fetchone()
-
-                if e_data:
-                    with st.form("edit_form"):
-                        upd_type = st.text_input("Kostenart Name", value=e_data[0])
-                        upd_amt = st.number_input("Betrag (€)", value=float(e_data[1]), step=0.01)
-                        
-                        # Schlüssel auf Deutsch vorselektieren
-                        current_key_de = DEUTSCHE_SCHLUESSEL.get(e_data[2], e_data[2])
-                        upd_key_label = st.selectbox("Schlüssel", list(DEUTSCHE_SCHLUESSEL.values()), 
-                                                     index=list(DEUTSCHE_SCHLUESSEL.values()).index(current_key_de))
-                        upd_key_db = [k for k, v in DEUTSCHE_SCHLUESSEL.items() if v == upd_key_label][0]
-                        
-                        btn_upd, btn_del = st.columns(2)
-                        if btn_upd.form_submit_button("💾 Update"):
-                            cur.execute("UPDATE operating_expenses SET expense_type=%s, amount=%s, distribution_key=%s WHERE id=%s", 
-                                        (upd_type, upd_amt, upd_key_db, edit_id))
-                            conn.commit()
-                            st.rerun()
-                            
-                        if btn_del.form_submit_button("🗑️ Löschen"):
-                            cur.execute("DELETE FROM operating_expenses WHERE id = %s", (edit_id,))
-                            conn.commit()
-                            st.rerun()
 
     except Exception as e:
         st.error(f"Fehler: {e}")
