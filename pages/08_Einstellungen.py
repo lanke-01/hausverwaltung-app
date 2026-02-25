@@ -105,7 +105,6 @@ else:
         with col_rest:
             st.markdown("### Wiederherstellung")
             
-            # Wenn Restore erfolgreich war, blockieren wir den Uploader bis zum Reset
             if st.session_state.restore_success:
                 st.success("✅ Datenbank erfolgreich wiederhergestellt!")
                 if st.button("🔄 Vorgang abschließen (Uploader leeren)"):
@@ -116,11 +115,11 @@ else:
                 if uploaded_file is not None:
                     if st.button("⚠️ JETZT WIEDERHERSTELLEN"):
                         try:
-                            # 1. Datei zwischenspeichern
+                            # 1. Datei zwischenspeichern (Korrektur der Syntax)
                             temp_path = "/tmp/restore_db.sql"
-                            with byte_data := uploaded_file.getvalue():
-                                with open(temp_path, "wb") as f:
-                                    f.write(byte_data)
+                            byte_data = uploaded_file.getvalue()
+                            with open(temp_path, "wb") as f:
+                                f.write(byte_data)
                             
                             # 2. Datenbank-Restore ausführen
                             env = os.environ.copy()
