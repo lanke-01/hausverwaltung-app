@@ -79,31 +79,42 @@ else:
     # --- TAB 2: SYSTEM & WARTUNG ---
     with tab2:
         st.subheader("🔄 Software-Update")
+        st.info("Dies erzwingt den neuesten Stand von GitHub und startet die App neu.")
+        
         if st.button("📥 Update von GitHub erzwingen & Restart"):
             with st.spinner("Update läuft..."):
                 try:
                     repo_path = "/opt/hausverwaltung"
+                    
+                    # 1. Git Fetch & Reset (erzwingt GitHub Stand)
                     subprocess.run(['git', '-C', repo_path, 'fetch', '--all'], check=True)
                     subprocess.run(['git', '-C', repo_path, 'reset', '--hard', 'origin/main'], check=True)
-                    subprocess.run(['sudo', 'systemctl', 'restart', 'hausverwaltung.service'], check=True)
-                    st.success("✅ Update erfolgreich!")
+                    
+                    # 2. Restart-Logik ohne 'sudo' Abhängigkeit
+                    # Wir versuchen verschiedene Wege, den Dienst neu zu starten
+                    restart_commands = [
+                        ['systemctl', 'restart', 'hausverwaltung.service'],
+                        ['sudo', '/usr/bin/systemctl', 'restart', 'hausverwaltung.service'],
+                        ['/usr/bin/systemctl', 'restart', 'hausverwaltung.service']
+                    ]
+                    
+                    success = False
+                    for cmd in restart_commands:
+                        try:
+                            subprocess.run(cmd, check=True, capture_output=True)
+                            success = True
+                            break
+                        except:
+                            continue
+                    
+                    if success:
+                        st.success("✅ Update erfolgreich! Die Seite lädt neu...")
+                        st.balloons()
+                    else:
+                        st.warning("⚠️ Code aktualisiert, aber Neustart fehlgeschlagen. Bitte LXC-Container manuell neustarten.")
+                        
                 except Exception as e:
-                    st.error(f"Fehler: {e}")
-
-    # --- TAB 3: DATENBANK-SICHERUNG (JETZT MIT LÖSCH-FUNKTION) ---
-    with tab3:
-        st.subheader("🗄️ Datenbank-Sicherung")
-        if st.button("🚀 Neues Backup jetzt erstellen"):
-            try:
-                res = subprocess.run(['/bin/bash', '/opt/hausverwaltung/install/backup_db.sh'], capture_output=True, text=True)
-                if res.returncode == 0:
-                    st.success("✅ Backup erfolgreich!")
-                    st.rerun()
-                else:
-                    st.error(f"Fehler: {res.stderr}")
-            except Exception as e:
-                st.error(f"Fehler: {e}")
-
+                    st.error(f"Update-Fehler: {e}")
         st.divider()
         st.subheader("Letzte Sicherungen")
         backup_path = "/opt/hausverwaltung/backups"
