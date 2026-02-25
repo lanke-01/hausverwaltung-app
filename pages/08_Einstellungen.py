@@ -68,16 +68,21 @@ else:
                 st.success("Gespeichert!")
                 st.rerun()
 
-    # --- TAB 2: SYSTEM ---
+    # --- TAB 2: SYSTEM (FIXED GIT PULL) ---
     with tab2:
         st.subheader("🔄 Software-Update")
-        if st.button("📥 Update von GitHub ziehen"):
+        st.info("Hinweis: Ein Update überschreibt lokale Dateiänderungen im Programmcode.")
+        if st.button("📥 Update von GitHub erzwingen"):
             try:
-                subprocess.run(['git', '-C', '/opt/hausverwaltung', 'pull'], check=True)
+                # 1. Lokale Änderungen verwerfen und neuesten Stand holen
+                subprocess.run(['git', '-C', '/opt/hausverwaltung', 'fetch', '--all'], check=True)
+                subprocess.run(['git', '-C', '/opt/hausverwaltung', 'reset', '--hard', 'origin/main'], check=True)
+                
                 st.success("Update erfolgreich! Starte Dienst neu...")
+                # 2. Dienst neu starten
                 subprocess.run(['systemctl', 'restart', 'hausverwaltung.service'])
             except Exception as e:
-                st.error(f"Fehler: {e}")
+                st.error(f"Fehler beim Update: {e}")
 
     # --- TAB 3: BACKUP & RESTORE ---
     with tab3:
@@ -99,7 +104,8 @@ else:
                 uploaded_file = st.file_uploader("SQL-Datei hochladen", type=["sql"])
                 if uploaded_file is not None:
                     if st.button("📂 Datei auf Server speichern & Restore vorbereiten"):
-                        # Pfad im offiziellen Backup-Ordner
+                        if not os.path.exists(BACKUP_DIR):
+                            os.makedirs(BACKUP_DIR)
                         save_path = os.path.join(BACKUP_DIR, uploaded_file.name)
                         with open(save_path, "wb") as f:
                             f.write(uploaded_file.getbuffer())
@@ -112,6 +118,7 @@ else:
                     try:
                         env = os.environ.copy()
                         env["PGPASSWORD"] = ""
+                        # Nutze -U postgres und verzichte auf -h localhost für Socket-Verbindung
                         res = subprocess.run([
                             'psql', '-U', 'postgres', '-d', 'hausverwaltung', '-f', st.session_state.restore_mode
                         ], capture_output=True, text=True, env=env)
@@ -121,9 +128,9 @@ else:
                             st.balloons()
                             st.session_state.restore_mode = False
                         else:
-                            st.error(f"Fehler: {res.stderr}")
+                            st.error(f"Fehler beim Einspielen: {res.stderr}")
                     except Exception as e:
-                        st.error(f"Fehler: {e}")
+                        st.error(f"Systemfehler: {e}")
                 
                 if st.button("❌ Abbrechen"):
                     st.session_state.restore_mode = False
@@ -146,7 +153,7 @@ else:
                     os.remove(full_path)
                     st.rerun()
         else:
-            st.error("Backup-Ordner nicht gefunden!")
+            st.info("Kein Backup-Ordner gefunden.")
 
     cur.close()
     conn.close()
