@@ -62,29 +62,65 @@ else:
             except Exception as e:
                 st.error(f"Fehler: {e}")
 
+    # --- TAB 3: DATENBANK-SICHERUNG & RESTORE ---
     with tab3:
-        st.subheader("🗄️ Datenbank-Sicherung")
-        if st.button("🚀 Neues Backup jetzt erstellen", key="btn_new_backup"):
-            try:
-                res = subprocess.run(['/bin/bash', '/opt/hausverwaltung/install/backup_db.sh'], capture_output=True, text=True)
-                if res.returncode == 0:
-                    st.success("✅ Backup erfolgreich!")
-                    st.rerun()
-                else:
-                    st.error(f"Fehler: {res.stderr}")
-            except Exception as e:
-                st.error(f"Fehler: {e}")
+        st.subheader("🗄️ Datenbank-Verwaltung")
+        
+        col_back, col_rest = st.columns(2)
+        
+        with col_back:
+            st.markdown("### Sicherung")
+            if st.button("🚀 Neues Backup jetzt erstellen", key="btn_new_backup"):
+                try:
+                    res = subprocess.run(['/bin/bash', '/opt/hausverwaltung/install/backup_db.sh'], capture_output=True, text=True)
+                    if res.returncode == 0:
+                        st.success("✅ Backup erfolgreich!")
+                        st.rerun()
+                    else:
+                        st.error(f"Fehler: {res.stderr}")
+                except Exception as e:
+                    st.error(f"Fehler: {e}")
+
+        with col_rest:
+            st.markdown("### Wiederherstellung")
+            uploaded_file = st.file_uploader("Backup-Datei (.sql) hochladen", type=["sql"])
+            if uploaded_file is not None:
+                if st.button("⚠️ Backup jetzt einspielen (Restore)"):
+                    try:
+                        # Datei temporär speichern
+                        temp_path = "/tmp/restore_db.sql"
+                        with open(temp_path, "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                        
+                        # Restore-Befehl ausführen (psql nutzt die trust-Verbindung)
+                        env = os.environ.copy()
+                        env["PGPASSWORD"] = "" # Nicht nötig bei trust, aber sicherheitshalber
+                        res = subprocess.run([
+                            'psql', '-h', 'localhost', '-U', 'postgres', '-d', 'hausverwaltung', '-f', temp_path
+                        ], capture_output=True, text=True)
+                        
+                        if res.returncode == 0:
+                            st.success("✅ Datenbank wurde erfolgreich wiederhergestellt!")
+                            st.balloons()
+                        else:
+                            st.error(f"Restore-Fehler: {res.stderr}")
+                    except Exception as e:
+                        st.error(f"Systemfehler: {e}")
 
         st.divider()
+        st.subheader("Vorhandene Dateien auf dem Server")
         backup_path = "/opt/hausverwaltung/backups"
+        
         if os.path.exists(backup_path):
             files = sorted([f for f in os.listdir(backup_path) if f.endswith('.sql')], reverse=True)
             for f in files:
                 full_path = os.path.join(backup_path, f)
                 c_file, c_dl, c_del = st.columns([3, 1, 1])
                 c_file.write(f"📄 {f}")
+                
                 with open(full_path, "rb") as file_content:
                     c_dl.download_button("⬇️", file_content, file_name=f, key=f"dl_{f}")
+                
                 if c_del.button("🗑️", key=f"del_{f}"):
                     os.remove(full_path)
                     st.rerun()
