@@ -102,6 +102,76 @@ else:
                 st.balloons()
             except Exception as e:
                 status.error(f"❌ Fehler: {e}")
+                
+                
+                
+    # --- TAB 3: DATENBANK-SICHERUNG ---
+    with tab3:
+        st.subheader("🗄️ Datenbank-Sicherung")
+        
+        # Der Haupt-Button für das Backup
+        if st.button("🚀 Neues Backup jetzt erstellen", key="btn_new_backup"):
+            try:
+                # Pfad zum Backup-Skript (bitte prüfen, ob dieser Pfad bei dir stimmt)
+                res = subprocess.run(['/bin/bash', '/opt/hausverwaltung/install/backup_db.sh'], capture_output=True, text=True)
+                if res.returncode == 0:
+                    st.success("✅ Backup erfolgreich erstellt!")
+                    st.rerun()
+                else:
+                    st.error(f"Fehler im Skript: {res.stderr}")
+            except Exception as e:
+                st.error(f"Systemfehler: {e}")
+
+        st.divider()
+        st.subheader("Vorhandene Sicherungen")
+        
+        backup_path = "/opt/hausverwaltung/backups"
+        
+        # Prüfen, ob der Ordner existiert, sonst erstellen
+        if not os.path.exists(backup_path):
+            try:
+                os.makedirs(backup_path)
+            except:
+                st.error("❌ Backup-Ordner konnte nicht gefunden oder erstellt werden.")
+        
+        if os.path.exists(backup_path):
+            files = sorted([f for f in os.listdir(backup_path) if f.endswith('.sql')], reverse=True)
+            
+            if not files:
+                st.info("Noch keine Backup-Dateien vorhanden.")
+            
+            for f in files:
+                full_path = os.path.join(backup_path, f)
+                # Größe berechnen
+                size_kb = os.path.getsize(full_path) / 1024
+                
+                # Drei Spalten: Info, Download, Löschen
+                col_file, col_dl, col_del = st.columns([3, 1, 1])
+                
+                with col_file:
+                    st.write(f"📄 **{f}** ({size_kb:.1f} KB)")
+                
+                with col_dl:
+                    try:
+                        with open(full_path, "rb") as file_content:
+                            st.download_button(
+                                label="⬇️ Download",
+                                data=file_content,
+                                file_name=f,
+                                key=f"dl_{f}"
+                            )
+                    except Exception as e:
+                        st.error("Download-Fehler")
+
+                with col_del:
+                    # Lösch-Button
+                    if st.button("🗑️ Löschen", key=f"del_{f}"):
+                        try:
+                            os.remove(full_path)
+                            st.toast(f"Datei {f} gelöscht!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Löschfehler: {e}")
         st.divider()
         st.subheader("Letzte Sicherungen")
         backup_path = "/opt/hausverwaltung/backups"
