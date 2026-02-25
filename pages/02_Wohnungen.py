@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import psycopg2
 
-# --- VERBINDUNGSFUNKTION ---
 def get_direct_conn():
     try:
         conn = psycopg2.connect(dbname="hausverwaltung", user="postgres")
@@ -12,90 +11,80 @@ def get_direct_conn():
         return None
 
 st.set_page_config(page_title="Wohnungsverwaltung", layout="wide")
-st.title("🏠 Wohnungsverwaltung")
+st.title("🏢 Wohnungsverwaltung")
 
 conn = get_direct_conn()
 
 if not conn:
-    st.error("❌ Keine Datenbankverbindung möglich.")
+    st.error("❌ Datenbankverbindung fehlgeschlagen.")
 else:
     cur = conn.cursor()
-
-    # --- AUTO-REPAIR & MIGRATION ---
-    # Wir stellen sicher, dass die Tabelle existiert und alle Spalten richtig heißen
     try:
-        cur.execute("CREATE TABLE IF NOT EXISTS apartments (id SERIAL PRIMARY KEY, unit_name VARCHAR(255))")
+        # 1. Übersicht der vorhandenen Wohnungen
+        st.subheader("Aktuelle Wohnungsliste")
+        cur.execute("SELECT id, unit_name, area FROM apartments ORDER BY unit_name ASC")
+        rows = cur.fetchall()
         
-        # Spalten einzeln prüfen und ggf. hinzufügen oder umbenennen
-        # 1. area (Fläche)
-        cur.execute("ALTER TABLE apartments ADD COLUMN IF NOT EXISTS area NUMERIC(10,2) DEFAULT 0")
-        # 2. base_rent (Kaltmiete)
-        cur.execute("ALTER TABLE apartments ADD COLUMN IF NOT EXISTS base_rent NUMERIC(10,2) DEFAULT 0")
-        
-        # 3. Spezialfall: service_charge_prepayment (NK-Vorschuss)
-        # Wir prüfen, ob die Spalte existiert. Wenn nicht, schauen wir nach 'utilities' oder 'service_charge_propayment'
-        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='apartments'")
-        existing_cols = [row[0] for row in cur.fetchall()]
-        
-        if 'service_charge_prepayment' not in existing_cols:
-            if 'utilities' in existing_cols:
-                cur.execute("ALTER TABLE apartments RENAME COLUMN utilities TO service_charge_prepayment")
-            elif 'service_charge_propayment' in existing_cols:
-                cur.execute("ALTER TABLE apartments RENAME COLUMN service_charge_propayment TO service_charge_prepayment")
-            else:
-                cur.execute("ALTER TABLE apartments ADD COLUMN service_charge_prepayment NUMERIC(10,2) DEFAULT 0")
-        
-        conn.commit()
-    except Exception as e:
-        st.error(f"Fehler bei Tabellen-Update: {e}")
-
-    # --- NEUE WOHNUNG ANLEGEN ---
-    with st.expander("➕ Neue Wohneinheit anlegen"):
-        with st.form("add_apt_form"):
-            col1, col2 = st.columns(2)
-            with col1:
-                name = st.text_input("Name der Einheit (z.B. EG Links)")
-                flaeche = st.number_input("Fläche (m²)", min_value=0.0, step=0.5)
-            with col2:
-                miete = st.number_input("Kaltmiete (€)", min_value=0.0, step=10.0)
-                nk = st.number_input("NK-Vorauszahlung (€)", min_value=0.0, step=5.0)
-            
-            if st.form_submit_button("Speichern"):
-                if name:
-                    cur.execute("""
-                        INSERT INTO apartments (unit_name, area, base_rent, service_charge_prepayment)
-                        VALUES (%s, %s, %s, %s)
-                    """, (name, flaeche, miete, nk))
-                    conn.commit()
-                    st.success("Wohnung erfolgreich hinzugefügt!")
-                    st.rerun()
-                else:
-                    st.warning("Bitte einen Namen für die Einheit angeben.")
-
-    st.divider()
-
-    # --- ÜBERSICHT ---
-    st.subheader("Bestandsliste")
-    
-    query = """
-        SELECT 
-            id as "ID", 
-            unit_name as "Einheit", 
-            area as "m²", 
-            base_rent as "Kalt (€)", 
-            service_charge_prepayment as "NK-Vorschuss (€)" 
-        FROM apartments 
-        ORDER BY unit_name ASC
-    """
-    
-    try:
-        df = pd.read_sql(query, conn)
-        if not df.empty:
-            st.dataframe(df, use_container_width=True, hide_index=True)
+        if rows:
+            df = pd.DataFrame(rows, columns=["ID", "Wohnung Name", "Fläche (m²)"])
+            st.table(df.set_index("ID"))
         else:
             st.info("Noch keine Wohnungen angelegt.")
-    except Exception as e:
-        st.error(f"Ein Fehler ist aufgetreten: {e}")
 
-    cur.close()
-    conn.close()
+        st.divider()
+
+        # 2. Aktionen: Neu anlegen oder Bearbeiten
+        col_neu, col_edit = st.columns(2)
+
+        with col_neu:
+            st.subheader("➕ Neue Wohnung hinzufügen")
+            with st.form("add_apartment"):
+                new_name = st.text_input("Bezeichnung (z.B. EG links)")
+                new_area = st.number_input("Fläche in m²", min_value=0.0, step=0.01)
+                if st.form_submit_button("Speichern"):
+                    if new_name:
+                        cur.execute("INSERT INTO apartments (unit_name, area) VALUES (%s, %s)", (new_name, new_area))
+                        conn.commit()
+                        st.success(f"Wohnung '{new_name}' angelegt!")
+                        st.rerun()
+                    else:
+                        st.error("Bitte einen Namen angeben.")
+
+        with col_edit:
+            if rows:
+                st.subheader("✏️ Wohnung bearbeiten / löschen")
+                # IDs für die Auswahl holen
+                apt_ids = [r[0] for r in rows]
+                selected_id = st.selectbox("Wohnung (ID) wählen", apt_ids)
+                
+                # Daten der gewählten Wohnung laden
+                cur.execute("SELECT unit_name, area FROM apartments WHERE id = %s", (selected_id,))
+                apt_data = cur.fetchone()
+
+                with st.form("edit_apartment"):
+                    upd_name = st.text_input("Bezeichnung", value=apt_data[0])
+                    upd_area = st.number_input("Fläche (m²)", value=float(apt_data[1]), step=0.01)
+                    
+                    c1, c2 = st.columns(2)
+                    if c1.form_submit_button("💾 Änderungen speichern"):
+                        cur.execute("UPDATE apartments SET unit_name = %s, area = %s WHERE id = %s", 
+                                    (upd_name, upd_area, selected_id))
+                        conn.commit()
+                        st.success("Wohnung aktualisiert!")
+                        st.rerun()
+                    
+                    if c2.form_submit_button("🗑️ Wohnung löschen"):
+                        # Vorsicht: Löschen nur möglich, wenn kein Mieter mehr zugeordnet ist (Fremdschlüssel)
+                        try:
+                            cur.execute("DELETE FROM apartments WHERE id = %s", (selected_id,))
+                            conn.commit()
+                            st.warning("Wohnung gelöscht.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error("Löschen nicht möglich: Es sind noch Mieter dieser Wohnung zugeordnet!")
+
+    except Exception as e:
+        st.error(f"Fehler: {e}")
+    finally:
+        cur.close()
+        conn.close()
