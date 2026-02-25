@@ -120,12 +120,21 @@ def generate_nebenkosten_pdf(mieter_name, wohnung, zeitraum, tage, tabelle, gesa
     pdf.cell(100, 10, label, 0)
     pdf.cell(40, 10, f"{abs(diff):.2f} EUR", 0, 1, 'R')
 
-    # Footer / Bankdaten (wie im Muster)
+  # --- Footer / Bankdaten (DYNAMISCH AUS DATENBANK) ---
     pdf.set_y(-40)
     pdf.set_font("Helvetica", '', 8)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 4, "Murat Sayilik, Eintrachtstr. 160, 42277 Wuppertal", ln=True, align='C')
-    pdf.cell(0, 4, f"Bank: {h_stats.get('bank', 'Stadtsparkasse Wuppertal')} | IBAN: {h_stats.get('iban', 'DE42 3305 ...')}", ln=True, align='C')
+    
+    # Zeile 1: Name und Adresse des Vermieters
+    absender_info = f"{h_stats.get('name', '')}, {h_stats.get('street', '')}, {h_stats.get('city', '')}"
+    pdf.cell(0, 4, absender_info, ln=True, align='C')
+    
+    # Zeile 2: Bankdaten
+    bank_info = f"Bank: {h_stats.get('bank', '')} | IBAN: {h_stats.get('iban', '')}"
+    pdf.cell(0, 4, bank_info, ln=True, align='C')
+    
+    # Zeile 3: Kontaktdaten (Falls du diese auch in die DB aufnimmst, sonst als Platzhalter)
+    # Wenn du Tel/Email nicht in der DB hast, lassen wir es fest oder ziehen es aus h_stats falls vorhanden
     pdf.cell(0, 4, "Tel: +49 1751713681 | E-Mail: murat@sayilik.de", ln=True, align='C')
 
     path = f"/tmp/Abrechnung_{mieter_name.replace(' ', '_')}.pdf"
