@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import psycopg2
-from pdf_utils import generate_nebenkosten_pdf
+# from pdf_utils import generate_nebenkosten_pdf # Falls vorhanden, wieder einkommentieren
 
 # --- DIREKTE VERBINDUNGSFUNKTION ---
 def get_direct_conn():
@@ -23,12 +23,15 @@ if not conn:
 else:
     cur = conn.cursor()
     try:
-        # Mieter laden (WICHTIG: apartment_id statt unit_id)
+        # AUTO-REPAIR: Sicherstellen, dass die Spalte 'occupants' in tenants existiert
+        cur.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS occupants INTEGER DEFAULT 1")
+        conn.commit()
+
+        # Mieter laden
         cur.execute("SELECT id, first_name, last_name, apartment_id FROM tenants ORDER BY last_name")
         tenants = cur.fetchall()
         
         if tenants:
-            # Mieter-Auswahl in der Seitenleiste
             t_opts = {f"{t[1]} {t[2]}": t[0] for t in tenants}
             sel_name = st.sidebar.selectbox("Mieter wählen", list(t_opts.keys()))
             t_id = t_opts[sel_name]
@@ -40,12 +43,21 @@ else:
                 st.subheader(f"Daten von {sel_name}")
                 cur.execute("SELECT * FROM tenants WHERE id = %s", (t_id,))
                 t_data = cur.fetchone()
-                st.write(t_data) # Kurz-Übersicht
+                # Debug-Ansicht der Rohdaten (optional)
+                # st.write(t_data) 
+                
+                # Schöne Detailanzeige
+                if t_data:
+                    c1, c2 = st.columns(2)
+                    c1.write(f"**Vorname:** {t_data[1]}")
+                    c1.write(f"**Nachname:** {t_data[2]}")
+                    c2.write(f"**Einzug:** {t_data[4]}")
+                    c2.write(f"**Personen im Haushalt:** {t_data[6] or 1}")
 
             with tab2:
-                # JOIN mit apartments über apartment_id
+                # FIX: 'area' statt 'size_sqm'
                 cur.execute("""
-                    SELECT a.unit_name, a.size_sqm, t.occupants, t.move_in, t.move_out, t.monthly_prepayment, t.last_name
+                    SELECT a.unit_name, a.area, t.occupants, t.move_in, t.move_out, t.monthly_prepayment, t.last_name
                     FROM tenants t 
                     JOIN apartments a ON t.apartment_id = a.id 
                     WHERE t.id = %s
@@ -60,17 +72,19 @@ else:
                     st.success(f"Daten für {jahr} bereit.")
                     
                     # Hier die Werte für die Berechnung zuordnen
-                    m_area = float(m_data[1] or 0)
+                    m_area = float(m_data[1] or 0) # Nutzt jetzt 'area'
                     h_area = float(h_data[0] or 0)
+                    m_occupants = m_data[2] or 1
                     
-                    col1, col2 = st.columns(2)
-                    col1.metric("Wohnfläche Mieter", f"{m_area} m²")
-                    col2.metric("Gesamtfläche Haus", f"{h_area} m²")
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Fläche Mieter", f"{m_area} m²")
+                    col2.metric("Fläche Haus", f"{h_area} m²")
+                    col3.metric("Personen", f"{m_occupants}")
                     
                     if h_area == 0:
-                        st.warning("⚠️ Die Gesamtfläche des Hauses ist in den Einstellungen noch 0. Die Berechnung wird nicht korrekt sein.")
+                        st.warning("⚠️ Die Gesamtfläche des Hauses ist in den Einstellungen noch 0.")
                 else:
-                    st.error("⚠️ Stammdaten unvollständig (Wohnung oder Haus-Einstellungen fehlen).")
+                    st.error("⚠️ Stammdaten unvollständig.")
         else:
             st.info("Keine Mieter in der Datenbank gefunden.")
             
