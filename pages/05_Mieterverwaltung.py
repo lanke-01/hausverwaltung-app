@@ -56,7 +56,6 @@ else:
             # --- BEARBEITUNGS-MODUS ---
             st.divider()
             with st.expander("✏️ Bestehenden Mieter bearbeiten", expanded=False):
-                # Wir greifen auf die Spalten 'vorname' und 'nachname' kleingeschrieben zu (wie im SQL definiert)
                 tenant_list = {
                     f"{r['vorname']} {r['nachname']} (ID: {r['id']})": r['id'] 
                     for _, r in df_tenants.iterrows()
@@ -65,9 +64,9 @@ else:
                 selected_label = st.selectbox("Mieter zum Bearbeiten wählen", list(tenant_list.keys()))
                 t_id_edit = tenant_list[selected_label]
 
-                # Aktuelle Rohdaten für diesen einen Mieter laden
+                # JETZT AUCH move_in UND move_out LADEN
                 cur.execute("""
-                    SELECT first_name, last_name, occupants, monthly_prepayment, apartment_id 
+                    SELECT first_name, last_name, occupants, monthly_prepayment, apartment_id, move_in, move_out 
                     FROM tenants WHERE id = %s
                 """, (t_id_edit,))
                 curr = cur.fetchone()
@@ -79,36 +78,46 @@ else:
                             new_f_name = st.text_input("Vorname", value=curr[0])
                             new_l_name = st.text_input("Nachname", value=curr[1])
                             new_occ = st.number_input("Personenanzahl", min_value=1, value=int(curr[2] or 1))
+                            # --- NEU: EINZUG ---
+                            new_move_in = st.date_input("Einzugsdatum", value=curr[5])
+                            
                         with col2:
                             new_pre = st.number_input("NK-Vorschuss (€)", min_value=0.0, value=float(curr[3] or 0.0))
                             
-                            # Wohnungen für Auswahl laden
+                            # --- NEU: AUSZUG ---
+                            # Falls move_out None ist, setzen wir heute als Standard-Vorschlag im Picker, 
+                            # speichern es aber nur, wenn die Checkbox unten aktiv ist
+                            auszug_aktiv = st.checkbox("Mieter ist ausgezogen / Auszugsdatum setzen", value=curr[6] is not None)
+                            new_move_out = st.date_input("Auszugsdatum", value=curr[6] if curr[6] else datetime.now())
+                            
+                            # Wohnung laden
                             cur.execute("SELECT id, unit_name FROM apartments ORDER BY unit_name")
                             apts = cur.fetchall()
                             apt_dict = {a[1]: a[0] for a in apts}
-                            
-                            # Aktuelle Wohnung vorselektieren
-                            current_apt_id = curr[4]
                             apt_names = list(apt_dict.keys())
+                            
+                            current_apt_id = curr[4]
                             try:
-                                # Suche Namen zur ID
                                 current_apt_name = [name for name, aid in apt_dict.items() if aid == current_apt_id][0]
                                 idx = apt_names.index(current_apt_name)
                             except:
                                 idx = 0
-                                
                             new_apt_name = st.selectbox("Wohnung", apt_names, index=idx)
 
                         if st.form_submit_button("💾 Änderungen speichern"):
+                            # Logik für das Auszugsdatum: Wenn Checkbox nicht an, dann NULL in DB
+                            final_move_out = new_move_out if auszug_aktiv else None
+                            
                             cur.execute("""
                                 UPDATE tenants 
-                                SET first_name=%s, last_name=%s, occupants=%s, monthly_prepayment=%s, apartment_id=%s
+                                SET first_name=%s, last_name=%s, occupants=%s, monthly_prepayment=%s, 
+                                    apartment_id=%s, move_in=%s, move_out=%s
                                 WHERE id=%s
-                            """, (new_f_name, new_l_name, new_occ, new_pre, apt_dict[new_apt_name], t_id_edit))
+                            """, (new_f_name, new_l_name, new_occ, new_pre, 
+                                  apt_dict[new_apt_name], new_move_in, final_move_out, t_id_edit))
                             conn.commit()
-                            st.success("✅ Mieterdaten aktualisiert!")
+                            st.success("✅ Mieterdaten inklusive Zeiträumen aktualisiert!")
                             st.rerun()
-
         else:
             st.info("Keine aktiven Mieter gefunden.")
             
