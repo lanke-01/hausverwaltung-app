@@ -44,10 +44,14 @@ else:
                 # 1. Daten abrufen
                 cur.execute("SELECT a.unit_name, a.area, t.occupants, t.move_in, t.move_out, t.monthly_prepayment, t.first_name, t.last_name FROM tenants t JOIN apartments a ON t.apartment_id = a.id WHERE t.id = %s", (t_id,))
                 m_data = cur.fetchone()
-                cur.execute("SELECT name, street, city, iban, total_area, total_occupants FROM landlord_settings WHERE id = 1")
+               
+                cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants FROM landlord_settings WHERE id = 1")
                 h_data = cur.fetchone()
+
                 cur.execute("SELECT expense_type, amount, distribution_key FROM operating_expenses WHERE expense_year = %s", (jahr,))
                 expenses = cur.fetchall()
+                
+                
 
                 if m_data and h_data and expenses:
                     # 2. Zeitrechnung
@@ -81,23 +85,40 @@ else:
                     saldo = summe_mieter - voraus_anteilig
 
                     # 4. PDF Erstellung (HIER SIND ALLE 10 ARGUMENTE)
-                    if st.button("🖨️ Abrechnung als PDF erstellen"):
-                        m_stats = {"area": m_data[1], "occupants": m_data[2]}
-                        h_stats = {"total_area": h_data[4], "total_occupants": h_data[5]}
-                        z_raum = f"{m_start.strftime('%d.%m.%Y')} - {m_ende.strftime('%d.%m.%Y')}"
-                        
-                        pdf_path = generate_nebenkosten_pdf(
-                            f"{m_data[6]} {m_data[7]}", # 1. mieter_name
-                            m_data[0],                  # 2. wohnung
-                            z_raum,                     # 3. zeitraum
-                            mieter_tage,                # 4. tage
-                            rows,                       # 5. tabelle
-                            summe_mieter,               # 6. gesamt
-                            voraus_anteilig,            # 7. voraus
-                            saldo,                      # 8. diff
-                            m_stats,                    # 9. m_stats
-                            h_stats                     # 10. h_stats
-                        )
+                # ... (in der 01_Mieter_Akte.py im tab2 Bereich)
+
+# Erweitere die Abfrage um alle Felder (Name, Straße, Ort, IBAN, Bankname)
+cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants FROM landlord_settings WHERE id = 1")
+h_data = cur.fetchone()
+
+# ... (weiter unten beim PDF-Button)
+
+if st.button("🖨️ Abrechnung als PDF erstellen"):
+    # h_stats bekommt jetzt alle Datenbank-Felder
+    h_stats = {
+        "name": h_data[0],
+        "street": h_data[1],
+        "city": h_data[2],
+        "iban": h_data[3],
+        "bank": h_data[4],
+        "total_area": h_data[5],
+        "total_occupants": h_data[6]
+    }
+    
+    # Der Aufruf bleibt gleich, aber h_stats enthält jetzt mehr Infos
+    pdf_path = generate_nebenkosten_pdf(
+        f"{m_data[6]} {m_data[7]}", 
+        m_data[0], 
+        z_raum, 
+        mieter_tage, 
+        rows, 
+        summe_mieter, 
+        voraus_anteilig, 
+        saldo, 
+        m_stats, 
+        h_stats
+    )
+# ...
                         
                         with open(pdf_path, "rb") as f:
                             st.download_button("📩 Download PDF", f, file_name=f"Abrechnung_{m_data[7]}.pdf")
