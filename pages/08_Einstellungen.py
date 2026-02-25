@@ -93,12 +93,9 @@ else:
                             f.write(uploaded_file.getbuffer())
                         
                         # Ausführung als root direkt über psql
-                        # Wir setzen die Umgebungsvariable PGPASSWORD leer, 
-                        # da wir eine lokale Socket-Verbindung erzwingen
                         env = os.environ.copy()
                         env["PGPASSWORD"] = ""
                         
-                        # Befehl ohne -h (Host), um den lokalen Unix-Socket zu nutzen (Passwortfrei für root/postgres)
                         res = subprocess.run([
                             'psql', '-U', 'postgres', '-d', 'hausverwaltung', '-f', temp_path
                         ], capture_output=True, text=True, env=env)
@@ -113,6 +110,7 @@ else:
                                 
                     except Exception as e:
                         st.error(f"Systemfehler: {e}")
+
         st.divider()
         st.subheader("Vorhandene Dateien auf dem Server")
         backup_path = "/opt/hausverwaltung/backups"
