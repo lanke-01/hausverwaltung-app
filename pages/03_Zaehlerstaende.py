@@ -82,13 +82,14 @@ with tab2:
                 st.success("Gespeichert!")
 
 with tab3:
-    st.subheader("Berechnete Verbräuche & Kosten")
+    st.subheader("Berechnete Verbräuche & Kosten (Differenzmessung)")
     
-    # Preis abfragen (könnte man auch aus den Stammdaten laden)
+    # Preis abfragen
     c_preis, c_jahr = st.columns(2)
     strom_preis = c_preis.number_input("Strompreis pro kWh (€)", value=0.35, step=0.01)
-    abr_jahr = c_jahr.number_input("Für Jahr", value=2024)
+    abr_jahr = c_jahr.number_input("Abrechnungsjahr", value=2024)
 
+    # Verbräuche aus DB laden
     cur.execute("""
         SELECT 
             m.id, m.meter_number, m.meter_type, COALESCE(a.unit_name, 'Haus'), m.is_submeter,
@@ -101,37 +102,54 @@ with tab3:
     rows = cur.fetchall()
     
     if rows:
+        # Erstelle DataFrame für die Übersicht
         df = pd.DataFrame(rows, columns=["ID", "Zähler", "Typ", "Bereich", "Unterzähler", "Verbrauch"])
+        
+        # Sicherstellen, dass 'Verbrauch' eine Zahl ist (kein None)
+        df['Verbrauch'] = df['Verbrauch'].fillna(0)
+        
         st.dataframe(df, use_container_width=True)
         
-        # Differenz-Berechnung
-        haupt_v = df[df['Unterzähler'] == False]['Verbrauch'].sum()
-        sub_v = df[df['Unterzähler'] == True]['Verbrauch'].sum()
+        # Differenz-Berechnung (Hier wird alles in float umgewandelt, um den Fehler zu vermeiden)
+        haupt_v = float(df[df['Unterzähler'] == False]['Verbrauch'].sum())
+        sub_v = float(df[df['Unterzähler'] == True]['Verbrauch'].sum())
         netto_allgemein = haupt_v - sub_v
         
         st.divider()
         col1, col2 = st.columns(2)
         
         with col1:
-            st.info(f"⚡ **Allgemeinstrom (Netto):** {netto_allgemein:.2f} kWh")
-            st.write(f"Kosten für alle: **{(netto_allgemein * strom_preis):.2f} €**")
-            st.caption("Diesen Betrag bei Ausgaben als 'Allgemeinstrom' (Schlüssel: m²) eintragen.")
+            st.info(f"⚡ **Allgemeinstrom (Netto)**")
+            st.metric("Verbrauch", f"{netto_allgemein:.2f} kWh")
+            st.write(f"Kosten für alle: **{(netto_allgemein * float(strom_preis)):.2f} €**")
+            st.caption("Verteilung nach Wohnfläche (m²)")
             
         with col2:
-            st.success(f"🔌 **Wallbox-Verbrauch:** {sub_v:.2f} kWh")
-            st.write(f"Kosten Wallbox: **{(sub_v * strom_preis):.2f} €**")
-            st.caption("Diesen Betrag bei Ausgaben als 'Wallbox-Strom' (Schlüssel: direkt) eintragen.")
+            st.success(f"🔌 **Wallbox (Unterzähler)**")
+            st.metric("Verbrauch", f"{sub_v:.2f} kWh")
+            st.write(f"Kosten Wallbox: **{(sub_v * float(strom_preis)):.2f} €**")
+            st.caption("Direktzuordnung zum Mieter")
 
-        if st.button("Kosten in Betriebskosten-Tabelle übernehmen"):
-            # Speichert die zwei bereinigten Positionen für das PDF
-            cur.execute("""
-                INSERT INTO operating_expenses (expense_type, amount, distribution_key, expense_year)
-                VALUES (%s, %s, %s, %s), (%s, %s, %s, %s)
-            """, (
-                "Allgemeinstrom (Netto)", netto_allgemein * strom_preis, "area", abr_jahr,
-                "Wallbox-Strom", sub_v * strom_preis, "direct", abr_jahr
-            ))
-            conn.commit()
-            st.success("✅ Kosten übertragen!")
+        st.divider()
+        if st.button("💾 Diese Werte in Betriebskosten übernehmen"):
+            try:
+                # 1. Allgemeinstrom speichern
+                cur.execute("""
+                    INSERT INTO operating_expenses (expense_type, amount, distribution_key, expense_year)
+                    VALUES (%s, %s, %s, %s)
+                """, ("Allgemeinstrom (Netto)", netto_allgemein * float(strom_preis), "area", abr_jahr))
+                
+                # 2. Wallbox speichern
+                cur.execute("""
+                    INSERT INTO operating_expenses (expense_type, amount, distribution_key, expense_year)
+                    VALUES (%s, %s, %s, %s)
+                """, ("Wallbox-Strom", sub_v * float(strom_preis), "direct", abr_jahr))
+                
+                conn.commit()
+                st.success("✅ Kosten wurden erfolgreich in die Ausgaben-Tabelle übertragen!")
+            except Exception as e:
+                st.error(f"Fehler beim Speichern: {e}")
+    else:
+        st.info("Keine Stromzähler-Daten gefunden. Bitte Zählerstände erfassen.")
 
 conn.close()
