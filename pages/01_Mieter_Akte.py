@@ -57,7 +57,7 @@ else:
                 abr_start = date(jahr, 1, 1)
                 abr_ende = date(jahr, 12, 31)
                 
-                # Mietzeitraum innerhalb des Abrechnungsjahres eingrenzen
+                # Mietzeitraum innerhalb des Abrechnungsjahres eingrenze
                 m_start = max(m_data[3], abr_start)
                 m_ende = min(m_data[4] or abr_ende, abr_ende)
                 
