@@ -103,7 +103,7 @@ else:
                         summe_mieter += anteil
                         rows.append({
                             "Kostenart": name, 
-                            "Gesamtkosten Haus": f"{gesamt_h:.2f} €", 
+                            "Gesamtkosten": f"{gesamt_h:.2f} €", 
                             "Schlüssel": DEUTSCHE_SCHLUESSEL.get(key, key), 
                             "Ihr Anteil": f"{anteil:.2f} €"
                         })
