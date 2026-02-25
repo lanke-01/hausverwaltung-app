@@ -101,14 +101,12 @@ else:
                             anteil = gesamt_h * zeit_faktor
                         
                         summe_mieter += anteil
-                     # ... (Teil der 01_Mieter_Akte.py)
-                    rows.append({
-                        "Kostenart": name, 
-                        "Gesamtkosten": f"{gesamt_h:.2f} €", # Exakt dieser Key ist wichtig
-                        "Schlüssel": DEUTSCHE_SCHLUESSEL.get(key, key), 
-                        "Ihr Anteil": f"{anteil:.2f} €"
-                    })
-# ...
+                        rows.append({
+                            "Kostenart": name, 
+                            "Gesamtkosten Haus": f"{gesamt_h:.2f} €", 
+                            "Schlüssel": DEUTSCHE_SCHLUESSEL.get(key, key), 
+                            "Ihr Anteil": f"{anteil:.2f} €"
+                        })
 
                     st.table(pd.DataFrame(rows))
                     
