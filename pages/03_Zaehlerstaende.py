@@ -22,7 +22,7 @@ if not conn:
 else:
     cur = conn.cursor()
 
-    # Tabellen sicherstellen
+    # Tabellen & Spalten sicherstellen
     cur.execute("""
         CREATE TABLE IF NOT EXISTS meters (
             id SERIAL PRIMARY KEY,
@@ -41,9 +41,11 @@ else:
             reading_value NUMERIC(12,2)
         )
     """)
+    # NEU: Spalte für Mieter-Zuordnung in den Ausgaben sicherstellen
+    cur.execute("ALTER TABLE operating_expenses ADD COLUMN IF NOT EXISTS tenant_id INTEGER")
     conn.commit()
 
-    # Vier Tabs für volle Kontrolle
+    # Vier Tabs
     tab1, tab2, tab3, tab4 = st.tabs([
         "🏗️ Zähler-Struktur", 
         "✍️ Ablesung erfassen", 
@@ -97,7 +99,7 @@ else:
         else:
             st.warning("Bitte erst Zähler in Tab 1 anlegen.")
 
-    # --- TAB 3: VERBRAUCHS-MONITOR (MIT WALLBOX LOGIK) ---
+    # --- TAB 3: VERBRAUCHS-MONITOR (MIT MIETER-ZUWEISUNG) ---
     with tab3:
         st.subheader("Berechnete Verbräuche & Kosten")
         
@@ -121,7 +123,6 @@ else:
             df['Verbrauch'] = df['Verbrauch'].fillna(0)
             st.dataframe(df, use_container_width=True)
             
-            # Die wichtige float-Umwandlung gegen den TypeError
             haupt_v = float(df[df['Unterzähler'] == False]['Verbrauch'].sum())
             sub_v = float(df[df['Unterzähler'] == True]['Verbrauch'].sum())
             netto_allgemein = haupt_v - sub_v
@@ -132,27 +133,50 @@ else:
                 st.info("⚡ Allgemeinstrom (Netto)")
                 st.metric("Verbrauch", f"{netto_allgemein:.2f} kWh")
                 st.write(f"Kosten: **{(netto_allgemein * float(strom_preis)):.2f} €**")
+                st.caption("Verteilung auf alle m²")
             with col2:
                 st.success("🔌 Wallbox (Unterzähler)")
                 st.metric("Verbrauch", f"{sub_v:.2f} kWh")
                 st.write(f"Kosten: **{(sub_v * float(strom_preis)):.2f} €**")
+                st.caption("Direktzuordnung zu einem Mieter")
 
-            if st.button("💾 In Betriebskosten übernehmen"):
-                cur.execute("""
-                    INSERT INTO operating_expenses (expense_type, amount, distribution_key, expense_year)
-                    VALUES (%s, %s, %s, %s), (%s, %s, %s, %s)
-                """, (
-                    "Allgemeinstrom (Netto)", netto_allgemein * float(strom_preis), "area", abr_jahr,
-                    "Wallbox-Strom", sub_v * float(strom_preis), "direct", abr_jahr
-                ))
-                conn.commit()
-                st.success("Übertragen!")
+            st.divider()
+            st.subheader("💾 Kosten verbuchen")
+            
+            # Mieter für Zuweisung laden
+            cur.execute("SELECT id, first_name, last_name FROM tenants WHERE move_out IS NULL")
+            tenants = {f"{t[1]} {t[2]}": t[0] for t in cur.fetchall()}
+            
+            if tenants:
+                c_sel, c_btn = st.columns([2, 1])
+                target_tenant = c_sel.selectbox("Welcher Mieter nutzt die Wallbox?", list(tenants.keys()))
+                
+                if c_btn.button("Jetzt in Betriebskosten speichern"):
+                    try:
+                        # 1. Allgemeinstrom für alle (tenant_id bleibt NULL)
+                        cur.execute("""
+                            INSERT INTO operating_expenses (expense_type, amount, distribution_key, expense_year)
+                            VALUES (%s, %s, %s, %s)
+                        """, ("Allgemeinstrom (Netto)", netto_allgemein * float(strom_preis), "area", abr_jahr))
+                        
+                        # 2. Wallbox NUR für gewählten Mieter (mit tenant_id)
+                        cur.execute("""
+                            INSERT INTO operating_expenses (expense_type, amount, distribution_key, expense_year, tenant_id)
+                            VALUES (%s, %s, %s, %s, %s)
+                        """, ("Wallbox-Strom", sub_v * float(strom_preis), "direct", abr_jahr, tenants[target_tenant]))
+                        
+                        conn.commit()
+                        st.success(f"✅ Gebucht! Wallbox wurde {target_tenant} zugewiesen.")
+                    except Exception as e:
+                        st.error(f"Fehler: {e}")
+            else:
+                st.warning("Keine aktiven Mieter für die Wallbox-Zuweisung gefunden.")
         else:
             st.info("Keine Stromzähler gefunden.")
 
     # --- TAB 4: VERLAUF & KORREKTUR ---
     with tab4:
-        st.subheader("Historie bearbeiten")
+        st.subheader("Ablesehistorie")
         cur.execute("""
             SELECT r.id, m.meter_number, m.meter_type, r.reading_date, r.reading_value, COALESCE(a.unit_name, 'Haus')
             FROM meter_readings r
@@ -161,7 +185,6 @@ else:
             ORDER BY r.reading_date DESC, r.id DESC LIMIT 50
         """)
         history = cur.fetchall()
-        
         for rid, m_num, m_type, r_date, r_val, unit in history:
             c1, c2, c3, c4 = st.columns([2,2,2,1])
             c1.write(f"{r_date}")
