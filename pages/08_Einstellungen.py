@@ -19,9 +19,11 @@ st.title("⚙️ Einstellungen & System")
 # Pfad zum Backup-Ordner
 BACKUP_DIR = "/opt/hausverwaltung/backups"
 
-# --- SESSION STATE ---
+# --- SESSION STATE INITIALISIERUNG ---
 if "restore_mode" not in st.session_state:
     st.session_state.restore_mode = False
+if "restore_msg" not in st.session_state:
+    st.session_state.restore_msg = None
 
 conn = get_direct_conn()
 
@@ -30,7 +32,7 @@ if not conn:
 else:
     cur = conn.cursor()
     
-    # Tabelle sicherstellen
+    # Tabelle für Stammdaten sicherstellen
     cur.execute("""
         CREATE TABLE IF NOT EXISTS landlord_settings (
             id SERIAL PRIMARY KEY,
@@ -68,25 +70,28 @@ else:
                 st.success("Gespeichert!")
                 st.rerun()
 
-    # --- TAB 2: SYSTEM (FIXED GIT PULL) ---
+    # --- TAB 2: SYSTEM ---
     with tab2:
         st.subheader("🔄 Software-Update")
-        st.info("Hinweis: Ein Update überschreibt lokale Dateiänderungen im Programmcode.")
         if st.button("📥 Update von GitHub erzwingen"):
             try:
-                # 1. Lokale Änderungen verwerfen und neuesten Stand holen
                 subprocess.run(['git', '-C', '/opt/hausverwaltung', 'fetch', '--all'], check=True)
                 subprocess.run(['git', '-C', '/opt/hausverwaltung', 'reset', '--hard', 'origin/main'], check=True)
-                
-                st.success("Update erfolgreich! Starte Dienst neu...")
-                # 2. Dienst neu starten
+                st.success("Update erfolgreich! Dienst wird neu gestartet...")
                 subprocess.run(['systemctl', 'restart', 'hausverwaltung.service'])
             except Exception as e:
-                st.error(f"Fehler beim Update: {e}")
+                st.error(f"Fehler: {e}")
 
     # --- TAB 3: BACKUP & RESTORE ---
     with tab3:
         st.subheader("🗄️ Datenbank-Verwaltung")
+        
+        if st.session_state.restore_msg:
+            st.info(st.session_state.restore_msg)
+            if st.button("OK"):
+                st.session_state.restore_msg = None
+                st.rerun()
+
         col_back, col_rest = st.columns(2)
         
         with col_back:
@@ -103,34 +108,41 @@ else:
             if not st.session_state.restore_mode:
                 uploaded_file = st.file_uploader("SQL-Datei hochladen", type=["sql"])
                 if uploaded_file is not None:
-                    if st.button("📂 Datei auf Server speichern & Restore vorbereiten"):
+                    if st.button("📂 Datei auf Server speichern"):
                         if not os.path.exists(BACKUP_DIR):
                             os.makedirs(BACKUP_DIR)
                         save_path = os.path.join(BACKUP_DIR, uploaded_file.name)
                         with open(save_path, "wb") as f:
                             f.write(uploaded_file.getbuffer())
-                        
                         st.session_state.restore_mode = save_path
                         st.rerun()
             else:
                 st.warning(f"Datei geladen: {os.path.basename(st.session_state.restore_mode)}")
                 if st.button("⚠️ JETZT RESTORE STARTEN"):
                     try:
+                        # Wir schließen die aktuelle Verbindung, damit psql exklusiven Zugriff hat
+                        cur.close()
+                        conn.close()
+                        
                         env = os.environ.copy()
                         env["PGPASSWORD"] = ""
-                        # Nutze -U postgres und verzichte auf -h localhost für Socket-Verbindung
+                        
+                        # Ausführung mit Timeout, damit es nicht ewig hängt
                         res = subprocess.run([
                             'psql', '-U', 'postgres', '-d', 'hausverwaltung', '-f', st.session_state.restore_mode
-                        ], capture_output=True, text=True, env=env)
+                        ], capture_output=True, text=True, env=env, timeout=30)
                         
                         if res.returncode == 0:
-                            st.success("✅ Datenbank erfolgreich wiederhergestellt!")
-                            st.balloons()
+                            st.session_state.restore_msg = "✅ Restore erfolgreich! Die App wurde aktualisiert."
                             st.session_state.restore_mode = False
+                            st.rerun()
                         else:
-                            st.error(f"Fehler beim Einspielen: {res.stderr}")
+                            st.error(f"Fehler: {res.stderr}")
+                            st.session_state.restore_mode = False
+                    except subprocess.TimeoutExpired:
+                        st.error("❌ Zeitüberschreitung: Der Restore hat zu lange gedauert.")
                     except Exception as e:
-                        st.error(f"Systemfehler: {e}")
+                        st.error(f"Fehler: {e}")
                 
                 if st.button("❌ Abbrechen"):
                     st.session_state.restore_mode = False
@@ -152,8 +164,7 @@ else:
                 if c_del.button("🗑️", key=f"del_{f}"):
                     os.remove(full_path)
                     st.rerun()
-        else:
-            st.info("Kein Backup-Ordner gefunden.")
 
-    cur.close()
-    conn.close()
+    if conn:
+        cur.close()
+        conn.close()
