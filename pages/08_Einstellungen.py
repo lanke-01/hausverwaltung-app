@@ -77,20 +77,25 @@ else:
                 st.success("✅ Stammdaten gespeichert! PDF-Footer werden nun automatisch aktualisiert.")
                 st.rerun()
 
-    # --- TAB 2: SYSTEM & WARTUNG (Update-Fix) ---
+    # --- TAB 2: SYSTEM & WARTUNG (Update-Fix) ---# --- TAB 2: SYSTEM & WARTUNG ---
     with tab2:
         st.subheader("🔄 Software-Update")
-        st.warning("Achtung: Dies überschreibt alle lokalen Änderungen auf dem Server mit dem Stand von GitHub!")
+        st.warning("Achtung: Dies überschreibt alle lokalen Änderungen auf dem Server!")
         
         if st.button("📥 Update von GitHub erzwingen & Restart"):
             with st.spinner("Hole neuesten Code von GitHub..."):
                 try:
-                    # 1. Alle lokalen Änderungen wegwerfen und Stand von GitHub (main) erzwingen
-                    subprocess.run(['git', '-C', '/opt/hausverwaltung', 'fetch', '--all'], capture_output=True)
-                    subprocess.run(['git', '-C', '/opt/hausverwaltung', 'reset', '--hard', 'origin/main'], capture_output=True)
+                    # 1. Git Reset (Pfad explizit angeben)
+                    repo_path = "/opt/hausverwaltung"
+                    subprocess.run(['git', '-C', repo_path, 'fetch', '--all'], check=True)
+                    subprocess.run(['git', '-C', repo_path, 'reset', '--hard', 'origin/main'], check=True)
                     
-                    # 2. System neustarten
-                    subprocess.run(['sudo', 'systemctl', 'restart', 'hausverwaltung.service'], capture_output=True)
+                    # 2. System neustarten (Wir versuchen es ohne sudo oder mit vollem Pfad)
+                    # Falls systemctl ohne sudo nicht geht, nutzen wir den absoluten Pfad /usr/bin/systemctl
+                    try:
+                        subprocess.run(['systemctl', 'restart', 'hausverwaltung.service'], check=True)
+                    except:
+                        subprocess.run(['sudo', '/usr/bin/systemctl', 'restart', 'hausverwaltung.service'], check=True)
                     
                     st.success("✅ Software ist auf dem neuesten Stand! Seite lädt neu...")
                     st.balloons()
