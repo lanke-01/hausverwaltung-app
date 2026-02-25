@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup_lxc.sh - Komplett-Version inkl. Tabellen-Fixes
+# setup_lxc.sh - Interaktive Auswahl beibehalten + Datenbank-Struktur fixiert
 
 # 1. Nächste freie ID finden
 CTID=$(pvesh get /cluster/nextid)
