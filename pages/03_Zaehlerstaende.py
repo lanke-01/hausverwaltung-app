@@ -82,22 +82,56 @@ with tab2:
                 st.success("Gespeichert!")
 
 with tab3:
-    st.subheader("Berechnete Verbräuche (Netto)")
-    # SQL-Logik zur Berechnung der Differenz
+    st.subheader("Berechnete Verbräuche & Kosten")
+    
+    # Preis abfragen (könnte man auch aus den Stammdaten laden)
+    c_preis, c_jahr = st.columns(2)
+    strom_preis = c_preis.number_input("Strompreis pro kWh (€)", value=0.35, step=0.01)
+    abr_jahr = c_jahr.number_input("Für Jahr", value=2024)
+
     cur.execute("""
         SELECT 
-            m.meter_number,
-            m.meter_type,
-            COALESCE(a.unit_name, 'Haus'),
+            m.id, m.meter_number, m.meter_type, COALESCE(a.unit_name, 'Haus'), m.is_submeter,
             (SELECT reading_value FROM meter_readings WHERE meter_id = m.id ORDER BY reading_date DESC LIMIT 1) -
-            (SELECT reading_value FROM meter_readings WHERE meter_id = m.id ORDER BY reading_date ASC LIMIT 1) as verbrauch,
-            m.is_submeter
+            (SELECT reading_value FROM meter_readings WHERE meter_id = m.id ORDER BY reading_date ASC LIMIT 1) as verbrauch
         FROM meters m
         LEFT JOIN apartments a ON m.apartment_id = a.id
+        WHERE m.meter_type = 'Strom'
     """)
-    data = cur.fetchall()
-    if data:
-        df = pd.DataFrame(data, columns=["Zähler", "Typ", "Bereich", "Verbrauch", "Unterzähler"])
+    rows = cur.fetchall()
+    
+    if rows:
+        df = pd.DataFrame(rows, columns=["ID", "Zähler", "Typ", "Bereich", "Unterzähler", "Verbrauch"])
         st.dataframe(df, use_container_width=True)
+        
+        # Differenz-Berechnung
+        haupt_v = df[df['Unterzähler'] == False]['Verbrauch'].sum()
+        sub_v = df[df['Unterzähler'] == True]['Verbrauch'].sum()
+        netto_allgemein = haupt_v - sub_v
+        
+        st.divider()
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.info(f"⚡ **Allgemeinstrom (Netto):** {netto_allgemein:.2f} kWh")
+            st.write(f"Kosten für alle: **{(netto_allgemein * strom_preis):.2f} €**")
+            st.caption("Diesen Betrag bei Ausgaben als 'Allgemeinstrom' (Schlüssel: m²) eintragen.")
+            
+        with col2:
+            st.success(f"🔌 **Wallbox-Verbrauch:** {sub_v:.2f} kWh")
+            st.write(f"Kosten Wallbox: **{(sub_v * strom_preis):.2f} €**")
+            st.caption("Diesen Betrag bei Ausgaben als 'Wallbox-Strom' (Schlüssel: direkt) eintragen.")
+
+        if st.button("Kosten in Betriebskosten-Tabelle übernehmen"):
+            # Speichert die zwei bereinigten Positionen für das PDF
+            cur.execute("""
+                INSERT INTO operating_expenses (expense_type, amount, distribution_key, expense_year)
+                VALUES (%s, %s, %s, %s), (%s, %s, %s, %s)
+            """, (
+                "Allgemeinstrom (Netto)", netto_allgemein * strom_preis, "area", abr_jahr,
+                "Wallbox-Strom", sub_v * strom_preis, "direct", abr_jahr
+            ))
+            conn.commit()
+            st.success("✅ Kosten übertragen!")
 
 conn.close()
