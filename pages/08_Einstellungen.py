@@ -4,6 +4,7 @@ import subprocess
 import os
 from datetime import datetime
 
+# --- VERBINDUNG ---
 def get_direct_conn():
     try:
         conn = psycopg2.connect(dbname="hausverwaltung", user="postgres")
@@ -15,101 +16,130 @@ def get_direct_conn():
 st.set_page_config(page_title="Einstellungen & System", layout="wide")
 st.title("⚙️ Einstellungen & System")
 
+# Session State für Restore-Schleifen-Schutz initialisieren
+if "restore_done" not in st.session_state:
+    st.session_state.restore_done = False
+
 conn = get_direct_conn()
 if not conn:
     st.error("❌ Datenbankverbindung fehlgeschlagen.")
 else:
     cur = conn.cursor()
+    
+    # Sicherstellen, dass die Stammdaten-Tabelle existiert
     cur.execute("""
         CREATE TABLE IF NOT EXISTS landlord_settings (
-            id SERIAL PRIMARY KEY, name VARCHAR(255), street VARCHAR(255), city VARCHAR(255),
-            iban VARCHAR(50), bank_name VARCHAR(255), total_area NUMERIC(10,2) DEFAULT 0, total_occupants INTEGER DEFAULT 0
+            id SERIAL PRIMARY KEY, 
+            name VARCHAR(255), 
+            street VARCHAR(255), 
+            city VARCHAR(255),
+            iban VARCHAR(50), 
+            bank_name VARCHAR(255), 
+            total_area NUMERIC(10,2) DEFAULT 0, 
+            total_occupants INTEGER DEFAULT 0
         )
     """)
     cur.execute("INSERT INTO landlord_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING")
     conn.commit()
 
+    # Aktuelle Daten laden
     cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants FROM landlord_settings WHERE id = 1")
     data = cur.fetchone()
 
     tab1, tab2, tab3 = st.tabs(["🏠 Stammdaten", "🛠️ System & Wartung", "🗄️ Datenbank-Sicherung"])
 
+    # --- TAB 1: STAMMDATEN ---
     with tab1:
         with st.form("settings_form"):
-            st.subheader("Vermieter-Details")
+            st.subheader("Vermieter-Details (für PDF-Abrechnung)")
             c1, c2 = st.columns(2)
             v_name = c1.text_input("Vermieter Name", value=data[0] or "")
             v_street = c1.text_input("Straße", value=data[1] or "")
             v_city = c1.text_input("PLZ / Ort", value=data[2] or "")
             v_iban = c2.text_input("IBAN", value=data[3] or "")
             v_bank = c2.text_input("Bankname", value=data[4] or "")
-            v_area = st.number_input("Gesamtfläche (m²)", value=float(data[5] or 0.0))
-            v_pers = st.number_input("Gesamtpersonen", value=int(data[6] or 0))
-            if st.form_submit_button("💾 Speichern"):
-                cur.execute("UPDATE landlord_settings SET name=%s, street=%s, city=%s, iban=%s, bank_name=%s, total_area=%s, total_occupants=%s WHERE id = 1",
-                            (v_name, v_street, v_city, v_iban, v_bank, v_area, v_pers))
+            v_area = st.number_input("Gesamtfläche Haus (m²)", value=float(data[5] or 0.0))
+            v_pers = st.number_input("Gesamtpersonen Haus", value=int(data[6] or 0))
+            
+            if st.form_submit_button("💾 Stammdaten speichern"):
+                cur.execute("""
+                    UPDATE landlord_settings 
+                    SET name=%s, street=%s, city=%s, iban=%s, bank_name=%s, total_area=%s, total_occupants=%s 
+                    WHERE id = 1
+                """, (v_name, v_street, v_city, v_iban, v_bank, v_area, v_pers))
                 conn.commit()
+                st.success("Stammdaten gespeichert!")
                 st.rerun()
 
+    # --- TAB 2: SYSTEM ---
     with tab2:
         st.subheader("🔄 Software-Update")
-        if st.button("📥 Update von GitHub erzwingen"):
+        if st.button("📥 Update von GitHub ziehen & App neu starten"):
             try:
                 subprocess.run(['git', '-C', '/opt/hausverwaltung', 'fetch', '--all'], check=True)
                 subprocess.run(['git', '-C', '/opt/hausverwaltung', 'reset', '--hard', 'origin/main'], check=True)
-                subprocess.run(['/usr/bin/systemctl', 'restart', 'hausverwaltung.service'], check=True)
-                st.success("Update erfolgreich!")
+                st.success("Software aktualisiert! Starte Dienst neu...")
+                subprocess.run(['systemctl', 'restart', 'hausverwaltung.service'])
             except Exception as e:
-                st.error(f"Fehler: {e}")
+                st.error(f"Fehler beim Update: {e}")
 
-    # --- TAB 3: DATENBANK-SICHERUNG & RESTORE ---
+    # --- TAB 3: BACKUP & RESTORE ---
     with tab3:
         st.subheader("🗄️ Datenbank-Verwaltung")
         
         col_back, col_rest = st.columns(2)
         
+        # LINKER BEREICH: BACKUP ERSTELLEN
         with col_back:
             st.markdown("### Sicherung")
             if st.button("🚀 Neues Backup jetzt erstellen", key="btn_new_backup"):
                 try:
                     res = subprocess.run(['/bin/bash', '/opt/hausverwaltung/install/backup_db.sh'], capture_output=True, text=True)
                     if res.returncode == 0:
-                        st.success("✅ Backup erfolgreich!")
+                        st.success("✅ Backup erfolgreich erstellt!")
                         st.rerun()
                     else:
-                        st.error(f"Fehler: {res.stderr}")
+                        st.error(f"Backup-Fehler: {res.stderr}")
                 except Exception as e:
-                    st.error(f"Fehler: {e}")
+                    st.error(f"Systemfehler: {e}")
 
+        # RECHTER BEREICH: RESTORE (WIEDERHERSTELLUNG)
         with col_rest:
             st.markdown("### Wiederherstellung")
-            uploaded_file = st.file_uploader("Backup-Datei (.sql) hochladen", type=["sql"])
-            if uploaded_file is not None:
-                if st.button("⚠️ Backup jetzt einspielen (Restore)"):
-                    try:
-                        # Datei temporär speichern
-                        temp_path = "/tmp/restore_db.sql"
-                        with open(temp_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
-                        
-                        # Ausführung als root direkt über psql
-                        env = os.environ.copy()
-                        env["PGPASSWORD"] = ""
-                        
-                        res = subprocess.run([
-                            'psql', '-U', 'postgres', '-d', 'hausverwaltung', '-f', temp_path
-                        ], capture_output=True, text=True, env=env)
-                        
-                        if res.returncode == 0:
-                            st.success("✅ Datenbank wurde erfolgreich wiederhergestellt!")
-                            st.balloons()
-                            st.rerun()
-                        else:
-                            st.error(f"Restore-Fehler: {res.stderr}")
-                            st.info("Tipp: Prüfe, ob die Datenbank 'hausverwaltung' existiert.")
-                                
-                    except Exception as e:
-                        st.error(f"Systemfehler: {e}")
+            
+            if not st.session_state.restore_done:
+                uploaded_file = st.file_uploader("Backup-Datei (.sql) hochladen", type=["sql"], key="restore_uploader")
+                
+                if uploaded_file is not None:
+                    if st.button("⚠️ Datenbank jetzt überschreiben (Restore)"):
+                        try:
+                            # Datei temporär zwischenspeichern
+                            temp_path = "/tmp/restore_db.sql"
+                            with open(temp_path, "wb") as f:
+                                f.write(uploaded_file.getbuffer())
+                            
+                            # Restore via psql als root (lokaler Socket)
+                            env = os.environ.copy()
+                            env["PGPASSWORD"] = ""
+                            res = subprocess.run([
+                                'psql', '-U', 'postgres', '-d', 'hausverwaltung', '-f', temp_path
+                            ], capture_output=True, text=True, env=env)
+                            
+                            if res.returncode == 0:
+                                st.session_state.restore_done = True
+                                st.success("✅ Restore erfolgreich abgeschlossen!")
+                                st.balloons()
+                                st.rerun() # Zeigt den Abschluss-Button an
+                            else:
+                                st.error(f"Fehler beim Einspielen: {res.stderr}")
+                        except Exception as e:
+                            st.error(f"Kritischer Fehler: {e}")
+            else:
+                # Abschluss-Zustand um Endlosschleife zu verhindern
+                st.warning("Die Datenbank wurde wiederhergestellt. Bitte entferne die Datei aus dem Uploader.")
+                if st.button("🔄 Zurück zur Übersicht"):
+                    st.session_state.restore_done = False
+                    st.rerun()
 
         st.divider()
         st.subheader("Vorhandene Dateien auf dem Server")
@@ -123,13 +153,13 @@ else:
                 c_file.write(f"📄 {f}")
                 
                 with open(full_path, "rb") as file_content:
-                    c_dl.download_button("⬇️", file_content, file_name=f, key=f"dl_{f}")
+                    c_dl.download_button("⬇️ Download", file_content, file_name=f, key=f"dl_{f}")
                 
-                if c_del.button("🗑️", key=f"del_{f}"):
+                if c_del.button("🗑️ Löschen", key=f"del_{f}"):
                     os.remove(full_path)
                     st.rerun()
         else:
-            st.error("Backup-Ordner fehlt.")
+            st.info("Kein Backup-Ordner gefunden.")
 
     cur.close()
     conn.close()
