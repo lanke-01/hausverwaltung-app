@@ -81,7 +81,7 @@ else:
                 except Exception as e:
                     st.error(f"Fehler: {e}")
 
-       with col_rest:
+        with col_rest:
             st.markdown("### Wiederherstellung")
             uploaded_file = st.file_uploader("Backup-Datei (.sql) hochladen", type=["sql"])
             if uploaded_file is not None:
