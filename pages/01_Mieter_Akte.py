@@ -130,7 +130,7 @@ else:
                     c2.metric("Vorauszahlungen", f"{voraus_gesamt:.2f} €")
                     c3.metric("Saldo", f"{saldo:.2f} €", delta_color="inverse")
 
-                    if st.button("🖨️ Abrechnung als PDF erstellen"):
+                    if st.button("🖨️ PDF erstellen"):
                         try:
                             m_stats = {"area": float(m_row[0]), "occupants": int(m_row[1])}
                             h_stats = {"name": str(h_row[0]), "street": str(h_row[1]), "city": str(h_row[2]), "iban": str(h_row[3]), "bank": str(h_row[4]), "total_area": float(h_row[5]), "total_occupants": int(h_row[6]), "total_units": int(h_row[7] or 6)}
