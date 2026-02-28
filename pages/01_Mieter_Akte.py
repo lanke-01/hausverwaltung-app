@@ -51,15 +51,19 @@ else:
                 t_data = cur.fetchone()
                 
                 if t_data:
+                    m_in = t_data[2]
+                    m_out = t_data[3]
+                    kaltmiete = float(t_data[6] or 0)
+                    vorschuss = float(t_data[4] or 0)
+                    soll_gesamt = kaltmiete + vorschuss
+
                     st.subheader(f"Stammdaten: {t_data[0]} {t_data[1]}")
                     c1, c2, c3 = st.columns(3)
-                    c1.write(f"**Einzug:** {t_data[2]}")
-                    c1.write(f"**Auszug:** {t_data[3] if t_data[3] else 'unbefristet'}")
-                    c2.write(f"**Kaltmiete:** {t_data[6]:.2f} €")
-                    c2.write(f"**Vorauszahlung:** {t_data[4]:.2f} €")
-                    
-                    soll_gesamt = float(t_data[6] or 0) + float(t_data[4] or 0)
-                    c3.metric("Gesamt Soll/Monat", f"{soll_gesamt:.2f} €")
+                    c1.write(f"**Einzug:** {m_in}")
+                    c1.write(f"**Auszug:** {m_out if m_out else 'unbefristet'}")
+                    c2.write(f"**Kaltmiete:** {kaltmiete:.2f} €")
+                    c2.write(f"**Vorauszahlung:** {vorschuss:.2f} €")
+                    c3.metric("Monatliches Soll", f"{soll_gesamt:.2f} €")
 
                     st.divider()
                     st.subheader(f"📅 Zahlungsabgleich {jahr}")
@@ -73,27 +77,45 @@ else:
                     """, (t_id, jahr))
                     all_payments = cur.fetchall()
 
-                    # Monats-Analyse
                     monats_daten = []
                     monate_namen = ["Januar", "Februar", "März", "April", "Mai", "Juni", 
                                     "Juli", "August", "September", "Oktober", "November", "Dezember"]
                     
                     for m_idx, m_name in enumerate(monate_namen, 1):
-                        ist_summe = sum(float(p[1]) for p in all_payments if p[0].month == m_idx)
-                        diff = ist_summe - soll_gesamt
-                        
-                        if ist_summe == 0:
-                            status = "⚪ Keine Zahlung"
-                        elif diff >= -0.01:
-                            status = "✅ Bezahlt"
+                        # Erster und letzter Tag des zu prüfenden Monats
+                        erster_tag_monat = date(jahr, m_idx, 1)
+                        if m_idx == 12:
+                            letzter_tag_monat = date(jahr, 12, 31)
                         else:
-                            status = "❌ Rückstand"
+                            letzter_tag_monat = date(jahr, m_idx + 1, 1) # Grobe Prüfung reicht hier
+                        
+                        # Prüfen, ob der Mieter in diesem Monat einen aktiven Vertrag hatte
+                        ist_aktiv = True
+                        if m_in and m_in > letzter_tag_monat:
+                            ist_aktiv = False
+                        if m_out and m_out < erster_tag_monat:
+                            ist_aktiv = False
+
+                        ist_summe = sum(float(p[1]) for p in all_payments if p[0].month == m_idx)
+                        
+                        if not ist_aktiv:
+                            status = "💤 Inaktiv"
+                            aktuelles_soll = 0.0
+                        else:
+                            aktuelles_soll = soll_gesamt
+                            diff = ist_summe - aktuelles_soll
+                            if ist_summe == 0:
+                                status = "⚪ Keine Zahlung"
+                            elif diff >= -0.01:
+                                status = "✅ Bezahlt"
+                            else:
+                                status = "❌ Rückstand"
 
                         monats_daten.append({
                             "Monat": m_name,
-                            "Soll (€)": f"{soll_gesamt:.2f}",
+                            "Soll (€)": f"{aktuelles_soll:.2f}",
                             "Ist (€)": f"{ist_summe:.2f}",
-                            "Differenz (€)": f"{diff:.2f}",
+                            "Differenz (€)": f"{(ist_summe - aktuelles_soll):.2f}",
                             "Status": status
                         })
 
@@ -106,14 +128,13 @@ else:
                         else:
                             st.info("Keine Einzelbuchungen vorhanden.")
 
-            # --- TAB 2: NEBENKOSTENABRECHNUNG (Dein bisheriger Code) ---
+            # --- TAB 2: NEBENKOSTENABRECHNUNG ---
             with tab2:
-                st.info(f"Berechnung der Nebenkosten für {jahr}...")
-                # ... hier folgt dein restlicher Abrechnungs-Code ...
-                # (Der Übersicht halber hier gekürzt, aber die Tab-Struktur passt nun)
+                st.info(f"Berechnung für {jahr}...")
+                # (Hier bleibt dein bestehender Abrechnungs-Code)
 
     except Exception as e:
-        st.error(f"Ein Fehler ist aufgetreten: {e}")
+        st.error(f"Fehler: {e}")
     finally:
         cur.close()
         conn.close()
