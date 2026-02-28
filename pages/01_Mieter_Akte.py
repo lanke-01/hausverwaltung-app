@@ -30,6 +30,7 @@ if not conn:
 else:
     cur = conn.cursor()
     try:
+        # Mieterliste laden
         cur.execute("SELECT id, first_name, last_name FROM tenants ORDER BY last_name")
         tenants_data = cur.fetchall()
         
@@ -41,6 +42,7 @@ else:
             
             tab1, tab2 = st.tabs(["📋 Mieter-Details & Zahlungsfluss", "🧮 Nebenkostenabrechnung"])
 
+            # --- TAB 1: ZAHLUNGSFLUSS & SALDO ---
             with tab1:
                 cur.execute("SELECT first_name, last_name, move_in, move_out, monthly_prepayment, occupants, base_rent FROM tenants WHERE id = %s", (t_id,))
                 t_data = cur.fetchone()
@@ -75,11 +77,15 @@ else:
                         monats_daten.append({"Monat": date(jahr, m_idx, 1).strftime("%B"), "Soll (€)": f"{aktuelles_soll:.2f}", "Ist (€)": f"{ist_monat:.2f}", "Saldo (€)": f"{diff_monat:.2f}", "Status": status})
                     st.table(pd.DataFrame(monats_daten))
 
+            # --- TAB 2: NEBENKOSTEN (MIT MIETER-FILTER FÜR WALLBOX) ---
             with tab2:
                 st.subheader(f"Abrechnung für das Jahr {jahr}")
-                cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants, total_units FROM landlord_settings LIMIT 1")
+                
+                # Hausdaten
+                cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants, total_units FROM landlord_settings WHERE id = 1")
                 h_row = cur.fetchone()
                 
+                # Mieter- & Wohnungsdaten
                 cur.execute("SELECT a.area, t.occupants, t.move_in, t.move_out, t.monthly_prepayment, a.unit_name, t.first_name, t.last_name FROM tenants t JOIN apartments a ON t.apartment_id = a.id WHERE t.id = %s", (t_id,))
                 m_row = cur.fetchone()
 
@@ -90,7 +96,13 @@ else:
                     jahr_tage = 366 if (jahr % 4 == 0) else 365
                     zeit_faktor = tage_mieter / jahr_tage
 
-                    cur.execute("SELECT expense_type, amount, distribution_key FROM operating_expenses WHERE expense_year = %s", (jahr,))
+                    # WICHTIG: Hier ist der Filter für tenant_id
+                    cur.execute("""
+                        SELECT expense_type, amount, distribution_key 
+                        FROM operating_expenses 
+                        WHERE expense_year = %s 
+                        AND (tenant_id IS NULL OR tenant_id = %s)
+                    """, (jahr, t_id))
                     expenses = cur.fetchall()
                     
                     pdf_rows = []
@@ -100,6 +112,7 @@ else:
                     for exp in expenses:
                         name, gesamt_h, key = exp[0], float(exp[1]), exp[2]
                         anteil = 0.0
+                        
                         if key == "area" and h_row[5] > 0:
                             anteil = (gesamt_h / float(h_row[5])) * float(m_row[0]) * zeit_faktor
                         elif key == "persons" and h_row[6] > 0:
@@ -107,6 +120,9 @@ else:
                         elif key == "unit":
                             ges_einheiten = float(h_row[7]) if (h_row[7] and h_row[7] > 0) else 6.0
                             anteil = (gesamt_h / ges_einheiten) * zeit_faktor
+                        elif key == "direct":
+                            # Bei Direktzuordnung wird der volle Betrag (zeitanteilig) berechnet
+                            anteil = gesamt_h * zeit_faktor
                         
                         summe_mieter += anteil
                         display_rows.append([name, f"{gesamt_h:.2f} €", DEUTSCHE_SCHLUESSEL.get(key, key), f"{anteil:.2f} €"])
@@ -119,7 +135,8 @@ else:
 
                     st.table(pd.DataFrame(display_rows, columns=["Kostenart", "Gesamt Haus", "Verteilerschlüssel", "Anteil Mieter"]))
                     
-                    voraus_gesamt = float(m_row[4]) * (tage_mieter / 30.4375)
+                    voraus_monatlich = float(m_row[4])
+                    voraus_gesamt = voraus_monatlich * (tage_mieter / 30.4375)
                     saldo = summe_mieter - voraus_gesamt
 
                     c1, c2, c3 = st.columns(3)
@@ -127,12 +144,13 @@ else:
                     c2.metric("Vorauszahlungen", f"{voraus_gesamt:.2f} €")
                     c3.metric("Saldo", f"{saldo:.2f} €", delta_color="inverse")
 
+                    # PDF Erstellung
                     if st.button("🖨️ Abrechnung als PDF erstellen"):
                         try:
-                            m_stats = {"area": float(m_row[0]), "occupants": int(m_row[1])}
-                            h_stats = {
-                                "name": h_row[0], "street": h_row[1], "city": h_row[2], 
-                                "iban": h_row[3], "bank": h_row[4], 
+                            m_stats_dict = {"area": float(m_row[0]), "occupants": int(m_row[1])}
+                            h_stats_dict = {
+                                "name": str(h_row[0]), "street": str(h_row[1]), "city": str(h_row[2]), 
+                                "iban": str(h_row[3]), "bank": str(h_row[4]), 
                                 "total_area": float(h_row[5]), "total_occupants": int(h_row[6]),
                                 "total_units": int(h_row[7] or 6)
                             }
@@ -141,7 +159,7 @@ else:
                             pdf_path = generate_nebenkosten_pdf(
                                 f"{m_row[6]} {m_row[7]}", str(m_row[5]), z_raum, 
                                 tage_mieter, pdf_rows, summe_mieter, voraus_gesamt, saldo, 
-                                m_stats, h_stats
+                                m_stats_dict, h_stats_dict
                             )
                             
                             if os.path.exists(pdf_path):
@@ -151,8 +169,6 @@ else:
                                         data=f,
                                         file_name=f"Nebenkostenabrechnung_{m_row[7]}_{jahr}.pdf"
                                     )
-                            else:
-                                st.error("PDF-Datei konnte nicht gefunden werden.")
                         except Exception as e:
                             st.error(f"PDF-Fehler: {e}")
                 else:
