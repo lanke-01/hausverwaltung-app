@@ -41,6 +41,7 @@ CREATE TABLE tenants (
     move_out DATE,
     occupants INTEGER DEFAULT 1,
     monthly_prepayment NUMERIC(10,2) DEFAULT 0
+	base_rent NUMERIC(10,2) DEFAULT 0
 );
 
 -- 4. Betriebskosten (Wichtig: Name ist jetzt operating_expenses)
