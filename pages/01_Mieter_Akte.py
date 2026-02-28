@@ -77,72 +77,88 @@ else:
                         monats_daten.append({"Monat": date(jahr, m_idx, 1).strftime("%B"), "Soll (€)": f"{aktuelles_soll:.2f}", "Ist (€)": f"{ist_monat:.2f}", "Saldo (€)": f"{diff_monat:.2f}", "Status": status})
                     st.table(pd.DataFrame(monats_daten))
 
-            # --- TAB 2: FIX FÜR WOHNEINHEITEN (0,00 € FEHLER) ---
+           # --- TAB 2: KORRIGIERTE NEBENKOSTENABRECHNUNG ---
             with tab2:
                 st.subheader(f"Abrechnung für das Jahr {jahr}")
                 
-                # WICHTIG: total_units (Index 7) wird hier explizit mit abgefragt!
-                cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants, total_units FROM landlord_settings WHERE id = 1")
+                # 1. Haus-Gesamtwerte & Mieter-Daten laden
+                cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants, total_units FROM landlord_settings LIMIT 1")
                 h_data = cur.fetchone()
                 
                 cur.execute("SELECT a.area, t.occupants, t.move_in, t.move_out, t.monthly_prepayment, a.unit_name, t.first_name, t.last_name FROM tenants t JOIN apartments a ON t.apartment_id = a.id WHERE t.id = %s", (t_id,))
                 m_data = cur.fetchone()
 
                 if h_data and m_data:
-                    # Zeitraum und Tage
                     m_start = max(m_data[2] or date(jahr,1,1), date(jahr,1,1))
                     m_ende = min(m_data[3] or date(jahr,12,31), date(jahr,12,31))
-                    tage_mieter = (m_ende - m_start).days + 1
+                    mieter_tage = (m_ende - m_start).days + 1
                     jahr_tage = 366 if (jahr % 4 == 0) else 365
-                    zeit_faktor = tage_mieter / jahr_tage
+                    anteil_jahr = mieter_tage / jahr_tage
 
                     cur.execute("SELECT expense_type, amount, distribution_key FROM operating_expenses WHERE expense_year = %s", (jahr,))
                     expenses = cur.fetchall()
                     
-                    rows = []
+                    pdf_rows = [] # Liste von Dictionaries für das PDF
+                    display_rows = [] # Liste von Listen für die Streamlit-Tabelle
                     summe_mieter = 0
+                    
                     for exp in expenses:
-                        name, gesamt_h, key = exp[0], float(exp[1]), exp[2]
+                        name, gesamt_betrag, key = exp
+                        betrag_f = float(gesamt_betrag)
                         
-                        anteil = 0.0
                         if key == "area" and h_data[5] > 0:
-                            anteil = (gesamt_h / float(h_data[5])) * float(m_data[0]) * zeit_faktor
+                            anteil = (betrag_f / float(h_data[5])) * float(m_data[0]) * anteil_jahr
                         elif key == "persons" and h_data[6] > 0:
-                            anteil = (gesamt_h / float(h_data[6])) * float(m_data[1]) * zeit_faktor
-                        elif key == "unit":
-                            # FIX: Wir nutzen h_data[7] (total_units). Falls 0 oder None, setzen wir 6 als Standard.
-                            ges_einheiten = float(h_data[7]) if (h_data[7] and h_data[7] > 0) else 6.0
-                            anteil = (gesamt_h / ges_einheiten) * zeit_faktor
+                            anteil = (betrag_f / float(h_data[6])) * float(m_data[1]) * anteil_jahr
+                        elif key == "unit" and h_data[7] > 0:
+                            anteil = (betrag_f / float(h_data[7])) * anteil_jahr
+                        else:
+                            anteil = 0
                         
                         summe_mieter += anteil
-                        rows.append([name, f"{gesamt_h:.2f} €", DEUTSCHE_SCHLUESSEL.get(key, key), f"{anteil:.2f} €"])
+                        
+                        # Für die Anzeige in Streamlit
+                        display_rows.append([name, f"{betrag_f:.2f} €", DEUTSCHE_SCHLUESSEL.get(key, key), f"{anteil:.2f} €"])
+                        
+                        # WICHTIG: Für das PDF als Dictionary (passend zu pdf_utils.py)
+                        pdf_rows.append({
+                            "Kostenart": name,
+                            "Gesamtkosten": f"{betrag_f:.2f}",
+                            "Schlüssel": DEUTSCHE_SCHLUESSEL.get(key, key),
+                            "Ihr Anteil": f"{anteil:.2f}"
+                        })
 
-                    st.table(pd.DataFrame(rows, columns=["Kostenart", "Gesamt Haus", "Verteilerschlüssel", "Anteil Mieter"]))
+                    st.table(pd.DataFrame(display_rows, columns=["Kostenart", "Gesamt Haus", "Verteilerschlüssel", "Anteil Mieter"]))
                     
-                    # Vorauszahlung berechnen
-                    monate_aktiv = tage_mieter / 30.4375
-                    voraus_gezahlt = float(m_data[4]) * monate_aktiv
-                    saldo = summe_mieter - voraus_gezahlt
+                    voraus_anteilig = float(m_data[4]) * (mieter_tage / 30.4375)
+                    saldo = summe_mieter - voraus_anteilig
 
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("Kosten (anteilig)", f"{summe_mieter:.2f} €")
-                    col2.metric("Vorauszahlung", f"{voraus_gezahlt:.2f} €")
-                    col3.metric("Saldo", f"{saldo:.2f} €", delta_color="inverse")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Gesamtkosten (anteilig)", f"{summe_mieter:.2f} €")
+                    c2.metric("Gezahlte Vorauszahlung", f"{voraus_anteilig:.2f} €")
+                    c3.metric("Saldo", f"{saldo:.2f} €", delta_color="inverse")
 
                     if st.button("🖨️ Abrechnung als PDF erstellen"):
                         try:
-                            m_stats = {"area": m_data[0], "occupants": m_data[1]}
-                            h_stats = {"name": h_data[0], "street": h_data[1], "city": h_data[2], "iban": h_data[3], "bank": h_data[4], "total_area": h_data[5], "total_occupants": h_data[6], "total_units": h_data[7]}
-                            pdf_path = generate_nebenkosten_pdf(f"{m_data[6]} {m_data[7]}", m_data[5], f"{m_start} - {m_ende}", tage_mieter, rows, summe_mieter, voraus_gezahlt, saldo, m_stats, h_stats)
+                            # Stats sauber als Dictionary übergeben
+                            m_stats = {"area": float(m_data[0]), "occupants": int(m_data[1])}
+                            h_stats = {
+                                "name": h_data[0], "street": h_data[1], "city": h_data[2], 
+                                "iban": h_data[3], "bank": h_data[4], 
+                                "total_area": float(h_data[5]), "total_occupants": int(h_data[6])
+                            }
+                            
+                            pdf_path = generate_nebenkosten_pdf(
+                                f"{m_data[6]} {m_data[7]}", m_data[5], 
+                                f"{m_start.strftime('%d.%m.%Y')} - {m_ende.strftime('%d.%m.%Y')}", 
+                                mieter_tage, pdf_rows, summe_mieter, voraus_anteilig, saldo, 
+                                m_stats, h_stats
+                            )
+                            
                             with open(pdf_path, "rb") as f:
                                 st.download_button("📩 Download PDF", f, file_name=f"Abrechnung_{m_data[7]}.pdf")
                         except Exception as e:
                             st.error(f"PDF-Fehler: {e}")
-                else:
-                    st.warning("⚠️ Bitte Landlord-Settings und Mieterdaten prüfen.")
-
-    except Exception as e:
-        st.error(f"Fehler: {e}")
     finally:
         cur.close()
         conn.close()
