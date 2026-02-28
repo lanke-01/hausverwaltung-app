@@ -21,7 +21,7 @@ if not conn:
 else:
     cur = conn.cursor()
     
-    # 1. Alle Mieter laden (für Eingabe und Filter)
+    # 1. Alle Mieter laden
     cur.execute("""
         SELECT t.id, t.first_name, t.last_name, a.unit_name 
         FROM tenants t
@@ -60,9 +60,8 @@ else:
     st.divider()
 
     # --- FILTER- & HISTORIE-BEREICH ---
-    st.subheader("🔍 Zahlungsverlauf")
+    st.subheader("🔍 Zahlungsverlauf & Korrektur")
     
-    # Filter-Auswahl
     filter_tenant = st.selectbox("Nach Mieter filtern", ["Alle anzeigen"] + list(tenant_options.keys()))
     
     try:
@@ -72,18 +71,17 @@ else:
             JOIN tenants t ON p.tenant_id = t.id
         """
         params = []
-        
         if filter_tenant != "Alle anzeigen":
             query += " WHERE p.tenant_id = %s"
             params.append(tenant_options[filter_tenant])
         
-        query += " ORDER BY p.payment_date DESC"
+        query += " ORDER BY p.id DESC" # Neueste (höchste ID) zuerst
         
         cur.execute(query, params)
         rows = cur.fetchall()
         
         if rows:
-            # Daten für Tabelle aufbereiten
+            # Tabelle anzeigen
             df_data = []
             for r in rows:
                 df_data.append({
@@ -95,18 +93,27 @@ else:
                     "Notiz": r[6] or ""
                 })
             
-            # Anzeige als interaktive Tabelle
             st.dataframe(df_data, use_container_width=True, hide_index=True)
-            
-            # Kleine Statistik zum Filter
+
+            # --- LÖSCH-BEREICH FÜR DUBLETTEN ---
+            with st.expander("🗑️ Dubletten löschen / Einträge entfernen"):
+                st.write("Wähle die ID des Eintrags, den du löschen möchtest:")
+                delete_id = st.number_input("ID eingeben", min_value=0, step=1)
+                if st.button("❌ Eintrag mit dieser ID unwiderruflich löschen"):
+                    cur.execute("DELETE FROM payments WHERE id = %s", (delete_id,))
+                    conn.commit()
+                    st.warning(f"Eintrag #{delete_id} wurde gelöscht.")
+                    st.rerun()
+
+            # Statistik
             total_sum = sum(r[4] for r in rows)
             st.metric(f"Summe ({filter_tenant})", f"{total_sum:.2f} €")
             
         else:
-            st.info("Keine Zahlungen für diesen Filter gefunden.")
+            st.info("Keine Zahlungen gefunden.")
             
     except Exception as e:
-        st.info("Die Zahlungstabelle konnte nicht geladen werden.")
+        st.error(f"Fehler beim Laden der Historie: {e}")
 
     cur.close()
     conn.close()
