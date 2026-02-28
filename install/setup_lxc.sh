@@ -42,7 +42,8 @@ pct exec $CTID -- apt update
 pct exec $CTID -- apt install -y git python3 python3-venv python3-pip postgresql postgresql-contrib libpq-dev
 
 # 4. Git Projekt klonen (HIER DEIN REPO EINTRAGEN)
-pct exec $CTID -- git clone https://github.com/DEIN_USER/hausverwaltung.git /opt/hausverwaltung
+
+pct exec $CTID -- bash -c "git clone https://github.com/lanke-01/hausverwaltung-app.git /opt/hausverwaltung"
 
 # 5. Datenbank initialisieren
 pct exec $CTID -- bash -c "su - postgres -c 'psql -c \"CREATE DATABASE hausverwaltung;\"'"
