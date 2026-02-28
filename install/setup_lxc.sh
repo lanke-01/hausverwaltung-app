@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup_lxc.sh - Deine Version + Keyword Tabelle & Berechtigungs-Fix
+# setup_lxc.sh - Deine Version mit fix für "operating_expenses"
 
 # 1. Nächste freie ID finden
 CTID=$(pvesh get /cluster/nextid)
@@ -61,11 +61,22 @@ systemctl restart postgresql
 echo "--- Datenbank-Schema erstellen ---"
 pct exec $CTID -- bash -c "su - postgres -c 'psql -c \"CREATE DATABASE hausverwaltung;\"'"
 
-# Führt deine init_db.sql aus (Pfad-Fix inklusive)
+# Führt deine init_db.sql aus
 pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -f /opt/hausverwaltung/init_db.sql\""
 
-# --- NEU: ZUSATZTABELLE FÜR CSV-ZUORDNUNG ---
+# --- FIX: operating_expenses Tabelle sicherstellen ---
 pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -c '
+  CREATE TABLE IF NOT EXISTS operating_expenses (
+    id SERIAL PRIMARY KEY,
+    expense_type VARCHAR(255),
+    amount NUMERIC(12,2),
+    distribution_key VARCHAR(50),
+    expense_year INTEGER,
+    tenant_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  -- Neue Tabelle für die CSV-Zuweisung (Keywords)
   CREATE TABLE IF NOT EXISTS tenant_keywords (
     id SERIAL PRIMARY KEY,
     tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
