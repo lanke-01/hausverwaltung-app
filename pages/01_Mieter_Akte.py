@@ -23,7 +23,6 @@ DEUTSCHE_SCHLUESSEL = {
     "direct": "Direktzuordnung"
 }
 
-# Fix für deutsche Monate
 MONATE_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", 
              "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
@@ -45,7 +44,6 @@ else:
             
             tab1, tab2 = st.tabs(["📋 Mieter-Details & Zahlungsfluss", "🧮 Nebenkostenabrechnung"])
 
-            # --- TAB 1: ZAHLUNGSFLUSS ---
             with tab1:
                 cur.execute("SELECT first_name, last_name, move_in, move_out, monthly_prepayment, occupants, base_rent FROM tenants WHERE id = %s", (t_id,))
                 t_data = cur.fetchone()
@@ -63,7 +61,6 @@ else:
                     for i, m_name in enumerate(MONATE_DE):
                         m_idx = i + 1
                         ist_monat = sum(float(p[1]) for p in all_payments if p[0].month == m_idx)
-                        
                         ist_aktiv = True
                         if m_in and m_in > date(jahr, m_idx, 28): ist_aktiv = False
                         if m_out and m_out < date(jahr, m_idx, 1): ist_aktiv = False
@@ -80,7 +77,6 @@ else:
                         monats_daten.append({"Monat": m_name, "Soll (€)": f"{aktuelles_soll:.2f}", "Ist (€)": f"{ist_monat:.2f}", "Saldo (€)": f"{diff_monat:.2f}", "Status": status})
                     st.table(pd.DataFrame(monats_daten))
 
-            # --- TAB 2: NEBENKOSTEN (DER FIX) ---
             with tab2:
                 st.subheader(f"Abrechnung für das Jahr {jahr}")
                 cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants, total_units FROM landlord_settings LIMIT 1")
@@ -92,31 +88,26 @@ else:
                     m_start = max(m_row[2] or date(jahr,1,1), date(jahr,1,1))
                     m_ende = min(m_row[3] or date(jahr,12,31), date(jahr,12,31))
                     tage_mieter = (m_ende - m_start).days + 1
-                    jahr_tage = 366 if (jahr % 4 == 0) else 365
-                    zeit_faktor = tage_mieter / jahr_tage
+                    zeit_faktor = tage_mieter / (366 if (jahr % 4 == 0) else 365)
 
-                  
-                # Nur Kosten laden, die KEINEM Mieter gehören (NULL) ODER genau DIESEM (t_id)
-        cur.execute("""
-            SELECT expense_type, amount, distribution_key, tenant_id 
-            FROM operating_expenses 
-            WHERE expense_year = %s 
-            AND (tenant_id IS NULL OR tenant_id = %s)
-            AND (tenant_id != -1 OR tenant_id IS NULL)
-        """, (jahr, t_id))
+                    cur.execute("""
+                        SELECT expense_type, amount, distribution_key, tenant_id 
+                        FROM operating_expenses 
+                        WHERE expense_year = %s 
+                        AND (tenant_id IS NULL OR tenant_id = %s)
+                        AND (tenant_id != -1 OR tenant_id IS NULL)
+                    """, (jahr, t_id))
                     expenses = cur.fetchall()
                     
                     pdf_rows, display_rows, summe_mieter = [], [], 0
                     for exp in expenses:
-                        name, gesamt_h, key, exp_tenant_id = exp[0], float(exp[1]), exp[2], exp[3]
+                        name, gesamt_h, key, exp_t_id = exp[0], float(exp[1]), exp[2], exp[3]
                         anteil = 0.0
-                        
-                        # Spezialfall: Wenn eine tenant_id gesetzt ist, ist es IMMER eine Direktzuordnung
-                        if exp_tenant_id is not None:
+                        if exp_t_id is not None and exp_t_id != -1:
                             anteil = gesamt_h * zeit_faktor
-                            display_key = "Direktzuordnung (Wallbox)"
+                            d_key = "Direktzuordnung"
                         else:
-                            display_key = DEUTSCHE_SCHLUESSEL.get(key, key)
+                            d_key = DEUTSCHE_SCHLUESSEL.get(key, key)
                             if key == "area" and h_row[5] > 0:
                                 anteil = (gesamt_h / float(h_row[5])) * float(m_row[0]) * zeit_faktor
                             elif key == "persons" and h_row[6] > 0:
@@ -127,14 +118,13 @@ else:
                                 anteil = gesamt_h * zeit_faktor
                         
                         summe_mieter += anteil
-                        display_rows.append([name, f"{gesamt_h:.2f} €", display_key, f"{anteil:.2f} €"])
-                        pdf_rows.append({"Kostenart": name, "Gesamtkosten": f"{gesamt_h:.2f}", "Schlüssel": display_key, "Ihr Anteil": f"{anteil:.2f}"})
+                        display_rows.append([name, f"{gesamt_h:.2f} €", d_key, f"{anteil:.2f} €"])
+                        pdf_rows.append({"Kostenart": name, "Gesamtkosten": f"{gesamt_h:.2f}", "Schlüssel": d_key, "Ihr Anteil": f"{anteil:.2f}"})
 
                     st.table(pd.DataFrame(display_rows, columns=["Kostenart", "Gesamt Haus", "Verteilerschlüssel", "Anteil Mieter"]))
                     
                     voraus_gesamt = float(m_row[4]) * (tage_mieter / 30.4375)
                     saldo = summe_mieter - voraus_gesamt
-                    
                     c1, c2, c3 = st.columns(3)
                     c1.metric("Anteilige Kosten", f"{summe_mieter:.2f} €")
                     c2.metric("Vorauszahlungen", f"{voraus_gesamt:.2f} €")
