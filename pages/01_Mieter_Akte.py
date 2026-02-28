@@ -155,10 +155,17 @@ else:
                                 m_stats, h_stats
                             )
                             
+                            if os.path.exists(pdf_path):
                             with open(pdf_path, "rb") as f:
-                                st.download_button("📩 Download PDF", f, file_name=f"Abrechnung_{m_data[7]}.pdf")
-                        except Exception as e:
-                            st.error(f"PDF-Fehler: {e}")
-    finally:
-        cur.close()
-        conn.close()
+                                st.download_button(
+                                    label="📩 Download PDF",
+                                    data=f,
+                                    file_name=f"Nebenkostenabrechnung_{m_row[7]}_{jahr}.pdf"
+                                )
+                        else:
+                            st.error("Datei konnte nicht erstellt werden.")
+                    except Exception as e:
+                        st.error(f"PDF-Fehler: {e}")
+                    finally:
+                    cur.close()
+                    conn.close()
