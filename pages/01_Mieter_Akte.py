@@ -42,16 +42,63 @@ else:
             
             tab1, tab2 = st.tabs(["📋 Mieter-Details", "📄 Abrechnung Vorschau"])
             
-            with tab1:
-                cur.execute("SELECT first_name, last_name, move_in, move_out, monthly_prepayment, occupants FROM tenants WHERE id = %s", (t_id,))
+          with tab1:
+                cur.execute("""
+                    SELECT first_name, last_name, move_in, move_out, monthly_prepayment, occupants, base_rent 
+                    FROM tenants WHERE id = %s
+                """, (t_id,))
                 t_data = cur.fetchone()
+                
                 if t_data:
                     st.subheader(f"Stammdaten: {t_data[0]} {t_data[1]}")
-                    c1, c2 = st.columns(2)
+                    c1, c2, c3 = st.columns(3)
                     c1.write(f"**Einzug:** {t_data[2]}")
                     c1.write(f"**Auszug:** {t_data[3] if t_data[3] else 'unbefristet'}")
-                    c1.write(f"**Personen:** {t_data[5] or 1}")
-                    c2.write(f"**Mtl. Vorauszahlung:** {t_data[4]:.2f} €")
+                    c2.write(f"**Kaltmiete:** {t_data[6]:.2f} €")
+                    c2.write(f"**Vorauszahlung:** {t_data[4]:.2f} €")
+                    c3.metric("Gesamt Soll/Monat", f"{t_data[6] + t_data[4]:.2f} €")
+
+                    st.divider()
+                    st.subheader(f"📅 Zahlungsübersicht für {jahr}")
+
+                    # 1. Zahlungen aus DB laden
+                    cur.execute("""
+                        SELECT payment_date, amount, note 
+                        FROM payments 
+                        WHERE tenant_id = %s AND EXTRACT(YEAR FROM payment_date) = %s
+                        ORDER BY payment_date DESC
+                    """, (t_id, jahr))
+                    all_payments = cur.fetchall()
+
+                    # 2. Monats-Analyse (Soll vs Ist)
+                    soll_pro_monat = float(t_data[6] + t_data[4])
+                    monats_daten = []
+                    
+                    for monat in range(1, 13):
+                        # Summe der Zahlungen für diesen Monat
+                        ist_summe = sum(float(p[1]) for p in all_payments if p[0].month == monat)
+                        differenz = ist_summe - soll_pro_monat
+                        
+                        status = "✅ Bezahlt" if differenz >= -0.01 else "❌ Rückstand"
+                        if ist_summe == 0: status = "⚪ Keine Zahlung"
+
+                        monats_daten.append({
+                            "Monat": datetime(jahr, monat, 1).strftime("%B"),
+                            "Soll": f"{soll_pro_monat:.2f} €",
+                            "Ist": f"{ist_summe:.2f} €",
+                            "Differenz": f"{differenz:.2f} €",
+                            "Status": status
+                        })
+
+                    st.table(pd.DataFrame(monats_daten))
+
+                    # 3. Einzelne Buchungen anzeigen
+                    with st.expander("🔍 Alle Einzelbuchungen anzeigen"):
+                        if all_payments:
+                            df_pay = pd.DataFrame(all_payments, columns=["Datum", "Betrag", "Notiz"])
+                            st.dataframe(df_pay, use_container_width=True)
+                        else:
+                            st.info("Keine Zahlungen für dieses Jahr gefunden.")
 
             with tab2:
                 # 1. Daten laden
