@@ -40,9 +40,9 @@ else:
             t_id = t_opts[sel_name]
             jahr = st.sidebar.number_input("Abrechnungsjahr", value=2024)
             
-            tab1, tab2 = st.tabs(["📋 Mieter-Details & Zahlungen", "🧮 Nebenkostenabrechnung"])
+            tab1, tab2 = st.tabs(["📋 Mieter-Details & Zahlungsfluss", "🧮 Nebenkostenabrechnung"])
 
-            # --- TAB 1: DETAILS & ZAHLUNGSÜBERSICHT ---
+            # --- TAB 1: DETAILS & INTELLIGENTER ZAHLUNGSABGLEICH ---
             with tab1:
                 cur.execute("""
                     SELECT first_name, last_name, move_in, move_out, monthly_prepayment, occupants, base_rent 
@@ -66,14 +66,15 @@ else:
                     c3.metric("Monatliches Soll", f"{soll_gesamt:.2f} €")
 
                     st.divider()
-                    st.subheader(f"📅 Zahlungsabgleich {jahr}")
+                    st.subheader(f"📅 Zahlungsfluss & Saldo {jahr}")
+                    st.caption("Überzahlungen werden automatisch in den Folgemonat übernommen.")
 
-                    # Zahlungen laden
+                    # Zahlungen für das gewählte Jahr laden
                     cur.execute("""
                         SELECT payment_date, amount, note 
                         FROM payments 
                         WHERE tenant_id = %s AND EXTRACT(YEAR FROM payment_date) = %s
-                        ORDER BY payment_date DESC
+                        ORDER BY payment_date ASC
                     """, (t_id, jahr))
                     all_payments = cur.fetchall()
 
@@ -81,60 +82,69 @@ else:
                     monate_namen = ["Januar", "Februar", "März", "April", "Mai", "Juni", 
                                     "Juli", "August", "September", "Oktober", "November", "Dezember"]
                     
-                    for m_idx, m_name in enumerate(monate_namen, 1):
-                        # Erster und letzter Tag des zu prüfenden Monats
-                        erster_tag_monat = date(jahr, m_idx, 1)
-                        if m_idx == 12:
-                            letzter_tag_monat = date(jahr, 12, 31)
-                        else:
-                            letzter_tag_monat = date(jahr, m_idx + 1, 1) # Grobe Prüfung reicht hier
-                        
-                        # Prüfen, ob der Mieter in diesem Monat einen aktiven Vertrag hatte
-                        ist_aktiv = True
-                        if m_in and m_in > letzter_tag_monat:
-                            ist_aktiv = False
-                        if m_out and m_out < erster_tag_monat:
-                            ist_aktiv = False
+                    vortrag_saldo = 0.0  # Übertrag aus dem Vormonat
 
-                        ist_summe = sum(float(p[1]) for p in all_payments if p[0].month == m_idx)
+                    for m_idx, m_name in enumerate(monate_namen, 1):
+                        # 1. Aktivitäts-Check (Einzug/Auszug berücksichtigen)
+                        erster_tag_monat = date(jahr, m_idx, 1)
+                        if m_idx == 12: letzter_tag_monat = date(jahr, 12, 31)
+                        else: letzter_tag_monat = date(jahr, m_idx + 1, 1)
+
+                        ist_aktiv = True
+                        if m_in and m_in > letzter_tag_monat: ist_aktiv = False
+                        if m_out and m_out < erster_tag_monat: ist_aktiv = False
+
+                        # 2. Ist-Zahlungen in diesem Monat summieren
+                        ist_monat = sum(float(p[1]) for p in all_payments if p[0].month == m_idx)
                         
                         if not ist_aktiv:
                             status = "💤 Inaktiv"
                             aktuelles_soll = 0.0
+                            differenz_monat = 0.0
+                            vortrag_saldo = 0.0 # Inaktive Monate resetten den Saldo meistens
                         else:
                             aktuelles_soll = soll_gesamt
-                            diff = ist_summe - aktuelles_soll
-                            if ist_summe == 0:
-                                status = "⚪ Keine Zahlung"
-                            elif diff >= -0.01:
+                            # Saldo-Logik: Was reinkommt + was noch da war
+                            verfuegbar_gesamt = ist_monat + vortrag_saldo
+                            differenz_monat = verfuegbar_gesamt - aktuelles_soll
+                            
+                            if verfuegbar_gesamt >= aktuelles_soll - 0.01:
                                 status = "✅ Bezahlt"
+                            elif verfuegbar_gesamt > 0:
+                                status = "⚠️ Teilgezahlt"
                             else:
                                 status = "❌ Rückstand"
+                            
+                            # Der Saldo für den NÄCHSTEN Monat ist die aktuelle Differenz
+                            vortrag_saldo = differenz_monat
 
                         monats_daten.append({
                             "Monat": m_name,
                             "Soll (€)": f"{aktuelles_soll:.2f}",
-                            "Ist (€)": f"{ist_summe:.2f}",
-                            "Differenz (€)": f"{(ist_summe - aktuelles_soll):.2f}",
+                            "Ist gezahlt (€)": f"{ist_monat:.2f}",
+                            "Saldo / Übertrag (€)": f"{differenz_monat:.2f}",
                             "Status": status
                         })
 
-                    st.table(pd.DataFrame(monats_daten))
+                    # Anzeige als Tabelle
+                    df_fluss = pd.DataFrame(monats_daten)
+                    st.table(df_fluss)
 
-                    with st.expander("🔍 Einzelne Buchungen einsehen"):
+                    with st.expander("🔍 Alle Einzelbuchungen dieses Jahr"):
                         if all_payments:
                             df_p = pd.DataFrame(all_payments, columns=["Datum", "Betrag", "Notiz"])
                             st.dataframe(df_p, use_container_width=True)
                         else:
-                            st.info("Keine Einzelbuchungen vorhanden.")
+                            st.info("Keine Zahlungen im System gefunden.")
 
             # --- TAB 2: NEBENKOSTENABRECHNUNG ---
             with tab2:
-                st.info(f"Berechnung für {jahr}...")
-                # (Hier bleibt dein bestehender Abrechnungs-Code)
+                # Hier bleibt dein Code für die Berechnung der Betriebskosten
+                st.info("Hier werden die Betriebskosten laut 'operating_expenses' berechnet.")
+                # (Abrechnungs-Logik wie gehabt...)
 
     except Exception as e:
-        st.error(f"Fehler: {e}")
+        st.error(f"Datenbank- oder Rechenfehler: {e}")
     finally:
         cur.close()
         conn.close()
