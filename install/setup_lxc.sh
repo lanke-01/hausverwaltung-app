@@ -36,7 +36,7 @@ pct exec $CTID -- apt install -y git python3 python3-venv python3-pip postgresql
 
 # 4. Git Projekt klonen
 # ERSETZE HIER 'DEINE_REPO_URL' durch deine tatsächliche URL!
-GIT_URL="https://github.com/DEIN_USER/hausverwaltung.git"
+GIT_URL="https://github.com/lanke-01/hausverwaltung.git"
 pct exec $CTID -- git clone $GIT_URL /opt/hausverwaltung
 
 # 5. Datenbank initialisieren
