@@ -143,11 +143,12 @@ def generate_nebenkosten_pdf(mieter_name, wohnung, zeitraum, tage, tabelle, gesa
     # Wenn du Tel/Email nicht in der DB hast, lassen wir es fest oder ziehen es aus h_stats falls vorhanden
     pdf.cell(0, 4, "Tel: +49 1751713681 | E-Mail: murat@sayilik.de", ln=True, align='C')
 
-   # Zeitraum säubern (Punkte und Leerzeichen entfernen, damit der Pfad gültig bleibt)
-    zeitraum_clean = zeitraum.replace('.', '').replace(' ', '').replace('-', '_')
+    # In pdf_utils.py innerhalb der Funktion:
+    import re
 
-   # Pfad mit Name und Zeitraum erstellen
-    path = f"/tmp/Abrechnung_{mieter_name.replace(' ', '_')}_{zeitraum_clean}.pdf"
+    # Erstellt einen sauberen String aus dem Zeitraum (nur Zahlen und Unterstriche)
+    zeit_suffix = re.sub(r'[^0-9]', '', zeitraum) 
 
+    path = f"/tmp/Abrechnung_{mieter_name.replace(' ', '_')}_{zeit_suffix}.pdf"
     pdf.output(path)
     return path
