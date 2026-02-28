@@ -38,11 +38,12 @@ echo "Warte auf Bootvorgang..."
 sleep 20
 
 # 3. System-Pakete
-pct exec $CTID -- apt update
-pct exec $CTID -- apt install -y git python3 python3-venv python3-pip postgresql postgresql-contrib libpq-dev
+pct exec $CTID -- bash -c "apt update && apt install -y postgresql git python3 python3-pip python3-venv libpq-dev locales"
+pct exec $CTID -- bash -c "echo 'de_DE.UTF-8 UTF-8' > /etc/locale.gen && locale-gen"
+pct exec $CTID -- bash -c "update-locale LANG=de_DE.UTF-8"
+
 
 # 4. Git Projekt klonen (HIER DEIN REPO EINTRAGEN)
-
 pct exec $CTID -- bash -c "git clone https://github.com/lanke-01/hausverwaltung-app.git /opt/hausverwaltung"
 
 # 5. Datenbank initialisieren
