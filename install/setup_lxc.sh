@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup_lxc.sh - DEINE ORIGINAL VERSION mit Keyword-Erweiterung
+# setup_lxc.sh - Deine Version + Keyword Tabelle & Berechtigungs-Fix
 
 # 1. Nächste freie ID finden
 CTID=$(pvesh get /cluster/nextid)
@@ -29,30 +29,42 @@ pveam update
 TEMPLATE_NAME=$(pveam available --section system | grep "debian-12" | awk '{print $2}' | head -n 1)
 pveam download $STORAGE $TEMPLATE_NAME
 
-# HIER: Deine pct create Zeile (angepasst auf deine Bedürfnisse)
 pct create $CTID $STORAGE:vztmpl/$TEMPLATE_NAME --hostname hausverwaltung-app \
   --password "$PASSWORD" --storage $CT_STORAGE \
-  --net0 name=eth0,bridge=vmbr0,ip=dhcp --memory 2048 --cores 2 --start 1
+  --net0 name=eth0,bridge=vmbr0,ip=dhcp --unprivileged 1 --features nesting=1
 
-echo "Warte auf Bootvorgang..."
+pct start $CTID
+echo "Warte auf Netzwerk (20s)..."
 sleep 20
 
-# 3. System-Pakete
+# 3. Software-Installation
 pct exec $CTID -- bash -c "apt update && apt install -y postgresql git python3 python3-pip python3-venv libpq-dev locales"
 pct exec $CTID -- bash -c "echo 'de_DE.UTF-8 UTF-8' > /etc/locale.gen && locale-gen"
 pct exec $CTID -- bash -c "update-locale LANG=de_DE.UTF-8"
 
-
-# 4. Git Projekt klonen (HIER DEIN REPO EINTRAGEN)
+# 4. GitHub Projekt laden
 pct exec $CTID -- bash -c "git clone https://github.com/lanke-01/hausverwaltung-app.git /opt/hausverwaltung"
 
-# 5. Datenbank initialisieren
+# --- NEU: RECHTE FÜR POSTGRES SETZEN ---
+pct exec $CTID -- chown -R postgres:postgres /opt/hausverwaltung
+pct exec $CTID -- chmod -R 755 /opt/hausverwaltung
+
+# 5. Datenbank-Konfiguration
+echo "--- Datenbank-Rechte setzen ---"
+pct exec $CTID -- bash -c "
+sed -i 's/local   all             postgres                                peer/local   all             postgres                                trust/' /etc/postgresql/15/main/pg_hba.conf
+sed -i 's/host    all             all             127.0.0.1\/32            scram-sha-256/host    all             all             127.0.0.1\/32            trust/' /etc/postgresql/15/main/pg_hba.conf
+systemctl restart postgresql
+"
+
+# 6. Datenbank & Tabellen initialisieren
+echo "--- Datenbank-Schema erstellen ---"
 pct exec $CTID -- bash -c "su - postgres -c 'psql -c \"CREATE DATABASE hausverwaltung;\"'"
 
-# Führt deine init_db.sql aus
+# Führt deine init_db.sql aus (Pfad-Fix inklusive)
 pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -f /opt/hausverwaltung/init_db.sql\""
 
-# --- DAS IST DER NEUE TEIL FÜR DIE CSV-AUTOMATIK ---
+# --- NEU: ZUSATZTABELLE FÜR CSV-ZUORDNUNG ---
 pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -c '
   CREATE TABLE IF NOT EXISTS tenant_keywords (
     id SERIAL PRIMARY KEY,
@@ -60,13 +72,22 @@ pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -c '
     keyword VARCHAR(255) UNIQUE NOT NULL
   );
 '\""
-# --------------------------------------------------
 
-# 6. Python Venv & Pakete
+# 7. DATEI-FIXING & RECHTE (Dein Original)
+echo "--- System-Konfiguration ---"
+pct exec $CTID -- bash -c "find /opt/hausverwaltung -type f -name '*.py' -exec sed -i 's/unit_id/apartment_id/g' {} +"
+pct exec $CTID -- bash -c "
+mkdir -p /opt/hausverwaltung/backups
+chown -R postgres:postgres /opt/hausverwaltung/backups
+chmod -R 777 /opt/hausverwaltung/backups
+chmod 777 /var/run/postgresql
+"
+
+# 8. Python Venv & Pakete
 pct exec $CTID -- bash -c "python3 -m venv /opt/hausverwaltung/venv"
 pct exec $CTID -- bash -c "/opt/hausverwaltung/venv/bin/pip install streamlit pandas psycopg2-binary fpdf python-dotenv"
 
-# 7. Autostart Service
+# 9. Autostart Service
 pct exec $CTID -- bash -c "cat <<EOF > /etc/systemd/system/hausverwaltung.service
 [Unit]
 Description=Streamlit Hausverwaltung
@@ -83,8 +104,9 @@ Restart=always
 WantedBy=multi-user.target
 EOF"
 
-pct exec $CTID -- systemctl daemon-reload
-pct exec $CTID -- systemctl enable hausverwaltung.service
-pct exec $CTID -- systemctl start hausverwaltung.service
+pct exec $CTID -- bash -c "systemctl daemon-reload && systemctl enable hausverwaltung.service && systemctl restart hausverwaltung.service"
 
-echo "✅ Container $CTID ist fertig!"
+IP_ADDRESS=$(pct exec $CTID -- hostname -I | awk '{print $1}')
+echo "-------------------------------------------------------"
+echo "✅ FERTIG! URL: http://$IP_ADDRESS:8501"
+echo "-------------------------------------------------------"
