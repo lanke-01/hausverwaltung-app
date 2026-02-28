@@ -95,14 +95,15 @@ else:
                     jahr_tage = 366 if (jahr % 4 == 0) else 365
                     zeit_faktor = tage_mieter / jahr_tage
 
-                    # WICHTIG: Strenger Filter für tenant_id
-                    # Nur Kosten laden, die KEINEM Mieter gehören (NULL) ODER genau DIESEM (t_id)
-                    cur.execute("""
-                        SELECT expense_type, amount, distribution_key, tenant_id 
-                        FROM operating_expenses 
-                        WHERE expense_year = %s 
-                        AND (tenant_id IS NULL OR tenant_id = %s)
-                    """, (jahr, t_id))
+                  
+                # Nur Kosten laden, die KEINEM Mieter gehören (NULL) ODER genau DIESEM (t_id)
+        cur.execute("""
+            SELECT expense_type, amount, distribution_key, tenant_id 
+            FROM operating_expenses 
+            WHERE expense_year = %s 
+            AND (tenant_id IS NULL OR tenant_id = %s)
+            AND (tenant_id != -1 OR tenant_id IS NULL)
+        """, (jahr, t_id))
                     expenses = cur.fetchall()
                     
                     pdf_rows, display_rows, summe_mieter = [], [], 0
