@@ -119,6 +119,12 @@ def generate_nebenkosten_pdf(mieter_name, wohnung, zeitraum, tage, tabelle, gesa
     label = "Zu zahlender Betrag:" if diff > 0 else "Guthaben / Rückerstattung:"
     pdf.cell(100, 10, label, 0)
     pdf.cell(40, 10, f"{abs(diff):.2f} EUR", 0, 1, 'R')
+    
+    label = "Bitte Überweisen Sie innerhalb von 14 Tagen auf das unten angegebenes Konto" if diff > 0 else "Ihr Guthaben / Rückerstattung wird Ihnen überwiesen"
+    pdf.cell(100, 10, label, 0)
+    pdf.cell(40, 10, f"{abs(diff):.2f} EUR", 0, 1, 'R')
+    
+    
 
   # --- Footer / Bankdaten (DYNAMISCH AUS DATENBANK) ---
     pdf.set_y(-40)
