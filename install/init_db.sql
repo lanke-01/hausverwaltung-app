@@ -61,3 +61,10 @@ CREATE TABLE meter_readings (
     reading_date DATE DEFAULT CURRENT_DATE,
     reading_value NUMERIC(15,3)
 );
+
+-- Erweiterung für die automatische Zuordnung
+CREATE TABLE IF NOT EXISTS tenant_keywords (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+    keyword VARCHAR(255) UNIQUE NOT NULL
+);
