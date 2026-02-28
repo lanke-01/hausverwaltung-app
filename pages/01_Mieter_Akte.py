@@ -23,6 +23,10 @@ DEUTSCHE_SCHLUESSEL = {
     "direct": "Direktzuordnung"
 }
 
+# Feste Liste für deutsche Monate
+MONATE_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", 
+             "Juli", "August", "September", "Oktober", "November", "Dezember"]
+
 conn = get_direct_conn()
 
 if not conn:
@@ -30,7 +34,6 @@ if not conn:
 else:
     cur = conn.cursor()
     try:
-        # Mieterliste laden
         cur.execute("SELECT id, first_name, last_name FROM tenants ORDER BY last_name")
         tenants_data = cur.fetchall()
         
@@ -42,7 +45,7 @@ else:
             
             tab1, tab2 = st.tabs(["📋 Mieter-Details & Zahlungsfluss", "🧮 Nebenkostenabrechnung"])
 
-            # --- TAB 1: ZAHLUNGSFLUSS & SALDO ---
+            # --- TAB 1: ZAHLUNGSFLUSS (DEUTSCHE MONATE) ---
             with tab1:
                 cur.execute("SELECT first_name, last_name, move_in, move_out, monthly_prepayment, occupants, base_rent FROM tenants WHERE id = %s", (t_id,))
                 t_data = cur.fetchone()
@@ -51,17 +54,16 @@ else:
                     kaltmiete, vorschuss = float(t_data[6] or 0), float(t_data[4] or 0)
                     soll_gesamt = kaltmiete + vorschuss
                     st.subheader(f"Stammdaten: {t_data[0]} {t_data[1]}")
-                    c1, c2, c3 = st.columns(3)
-                    c1.write(f"**Einzug:** {m_in}"); c1.write(f"**Auszug:** {m_out or 'unbefristet'}")
-                    c2.write(f"**Kaltmiete:** {kaltmiete:.2f} €"); c2.write(f"**Vorauszahlung:** {vorschuss:.2f} €")
-                    c3.metric("Monatliches Soll", f"{soll_gesamt:.2f} €")
-
-                    cur.execute("SELECT payment_date, amount FROM payments WHERE tenant_id = %s AND EXTRACT(YEAR FROM payment_date) = %s ORDER BY payment_date ASC", (t_id, jahr))
+                    
+                    cur.execute("SELECT payment_date, amount FROM payments WHERE tenant_id = %s AND EXTRACT(YEAR FROM payment_date) = %s", (t_id, jahr))
                     all_payments = cur.fetchall()
+                    
                     monats_daten = []
                     vortrag_saldo = 0.0
-                    for m_idx in range(1, 13):
+                    for i, m_name in enumerate(MONATE_DE):
+                        m_idx = i + 1
                         ist_monat = sum(float(p[1]) for p in all_payments if p[0].month == m_idx)
+                        
                         ist_aktiv = True
                         if m_in and m_in > date(jahr, m_idx, 28): ist_aktiv = False
                         if m_out and m_out < date(jahr, m_idx, 1): ist_aktiv = False
@@ -74,18 +76,15 @@ else:
                             diff_monat = verfuegbar - aktuelles_soll
                             status = "✅ Bezahlt" if verfuegbar >= aktuelles_soll - 0.01 else "❌ Rückstand"
                             vortrag_saldo = diff_monat
-                        monats_daten.append({"Monat": date(jahr, m_idx, 1).strftime("%B"), "Soll (€)": f"{aktuelles_soll:.2f}", "Ist (€)": f"{ist_monat:.2f}", "Saldo (€)": f"{diff_monat:.2f}", "Status": status})
+                        
+                        monats_daten.append({"Monat": m_name, "Soll (€)": f"{aktuelles_soll:.2f}", "Ist (€)": f"{ist_monat:.2f}", "Saldo (€)": f"{diff_monat:.2f}", "Status": status})
                     st.table(pd.DataFrame(monats_daten))
 
-            # --- TAB 2: NEBENKOSTEN (MIT MIETER-FILTER FÜR WALLBOX) ---
+            # --- TAB 2: NEBENKOSTEN (MIT WALLBOX-FILTER) ---
             with tab2:
                 st.subheader(f"Abrechnung für das Jahr {jahr}")
-                
-                # Hausdaten
-                cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants, total_units FROM landlord_settings WHERE id = 1")
+                cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants, total_units FROM landlord_settings LIMIT 1")
                 h_row = cur.fetchone()
-                
-                # Mieter- & Wohnungsdaten
                 cur.execute("SELECT a.area, t.occupants, t.move_in, t.move_out, t.monthly_prepayment, a.unit_name, t.first_name, t.last_name FROM tenants t JOIN apartments a ON t.apartment_id = a.id WHERE t.id = %s", (t_id,))
                 m_row = cur.fetchone()
 
@@ -93,10 +92,9 @@ else:
                     m_start = max(m_row[2] or date(jahr,1,1), date(jahr,1,1))
                     m_ende = min(m_row[3] or date(jahr,12,31), date(jahr,12,31))
                     tage_mieter = (m_ende - m_start).days + 1
-                    jahr_tage = 366 if (jahr % 4 == 0) else 365
-                    zeit_faktor = tage_mieter / jahr_tage
+                    zeit_faktor = tage_mieter / (366 if (jahr % 4 == 0) else 365)
 
-                    # WICHTIG: Hier ist der Filter für tenant_id
+                    # DER FILTER: tenant_id IS NULL (für alle) ODER tenant_id = t_id (nur dieser Mieter)
                     cur.execute("""
                         SELECT expense_type, amount, distribution_key 
                         FROM operating_expenses 
@@ -105,74 +103,43 @@ else:
                     """, (jahr, t_id))
                     expenses = cur.fetchall()
                     
-                    pdf_rows = []
-                    display_rows = []
-                    summe_mieter = 0
-                    
+                    pdf_rows, display_rows, summe_mieter = [], [], 0
                     for exp in expenses:
                         name, gesamt_h, key = exp[0], float(exp[1]), exp[2]
                         anteil = 0.0
-                        
                         if key == "area" and h_row[5] > 0:
                             anteil = (gesamt_h / float(h_row[5])) * float(m_row[0]) * zeit_faktor
                         elif key == "persons" and h_row[6] > 0:
                             anteil = (gesamt_h / float(h_row[6])) * float(m_row[1]) * zeit_faktor
                         elif key == "unit":
-                            ges_einheiten = float(h_row[7]) if (h_row[7] and h_row[7] > 0) else 6.0
-                            anteil = (gesamt_h / ges_einheiten) * zeit_faktor
+                            anteil = (gesamt_h / (float(h_row[7]) or 6.0)) * zeit_faktor
                         elif key == "direct":
-                            # Bei Direktzuordnung wird der volle Betrag (zeitanteilig) berechnet
                             anteil = gesamt_h * zeit_faktor
                         
                         summe_mieter += anteil
                         display_rows.append([name, f"{gesamt_h:.2f} €", DEUTSCHE_SCHLUESSEL.get(key, key), f"{anteil:.2f} €"])
-                        pdf_rows.append({
-                            "Kostenart": name,
-                            "Gesamtkosten": f"{gesamt_h:.2f}",
-                            "Schlüssel": DEUTSCHE_SCHLUESSEL.get(key, key),
-                            "Ihr Anteil": f"{anteil:.2f}"
-                        })
+                        pdf_rows.append({"Kostenart": name, "Gesamtkosten": f"{gesamt_h:.2f}", "Schlüssel": DEUTSCHE_SCHLUESSEL.get(key, key), "Ihr Anteil": f"{anteil:.2f}"})
 
                     st.table(pd.DataFrame(display_rows, columns=["Kostenart", "Gesamt Haus", "Verteilerschlüssel", "Anteil Mieter"]))
                     
-                    voraus_monatlich = float(m_row[4])
-                    voraus_gesamt = voraus_monatlich * (tage_mieter / 30.4375)
+                    voraus_gesamt = float(m_row[4]) * (tage_mieter / 30.4375)
                     saldo = summe_mieter - voraus_gesamt
-
+                    
                     c1, c2, c3 = st.columns(3)
                     c1.metric("Anteilige Kosten", f"{summe_mieter:.2f} €")
                     c2.metric("Vorauszahlungen", f"{voraus_gesamt:.2f} €")
                     c3.metric("Saldo", f"{saldo:.2f} €", delta_color="inverse")
 
-                    # PDF Erstellung
                     if st.button("🖨️ Abrechnung als PDF erstellen"):
                         try:
-                            m_stats_dict = {"area": float(m_row[0]), "occupants": int(m_row[1])}
-                            h_stats_dict = {
-                                "name": str(h_row[0]), "street": str(h_row[1]), "city": str(h_row[2]), 
-                                "iban": str(h_row[3]), "bank": str(h_row[4]), 
-                                "total_area": float(h_row[5]), "total_occupants": int(h_row[6]),
-                                "total_units": int(h_row[7] or 6)
-                            }
+                            m_stats = {"area": float(m_row[0]), "occupants": int(m_row[1])}
+                            h_stats = {"name": str(h_row[0]), "street": str(h_row[1]), "city": str(h_row[2]), "iban": str(h_row[3]), "bank": str(h_row[4]), "total_area": float(h_row[5]), "total_occupants": int(h_row[6]), "total_units": int(h_row[7] or 6)}
                             z_raum = f"{m_start.strftime('%d.%m.%Y')} - {m_ende.strftime('%d.%m.%Y')}"
-                            
-                            pdf_path = generate_nebenkosten_pdf(
-                                f"{m_row[6]} {m_row[7]}", str(m_row[5]), z_raum, 
-                                tage_mieter, pdf_rows, summe_mieter, voraus_gesamt, saldo, 
-                                m_stats_dict, h_stats_dict
-                            )
-                            
-                            if os.path.exists(pdf_path):
-                                with open(pdf_path, "rb") as f:
-                                    st.download_button(
-                                        label="📩 Download PDF",
-                                        data=f,
-                                        file_name=f"Nebenkostenabrechnung_{m_row[7]}_{jahr}.pdf"
-                                    )
+                            pdf_path = generate_nebenkosten_pdf(f"{m_row[6]} {m_row[7]}", str(m_row[5]), z_raum, tage_mieter, pdf_rows, summe_mieter, voraus_gesamt, saldo, m_stats, h_stats)
+                            with open(pdf_path, "rb") as f:
+                                st.download_button("📩 Download PDF", f, file_name=f"NK_{m_row[7]}_{jahr}.pdf")
                         except Exception as e:
                             st.error(f"PDF-Fehler: {e}")
-                else:
-                    st.warning("⚠️ Stammdaten unvollständig.")
     except Exception as e:
         st.error(f"Fehler: {e}")
     finally:
