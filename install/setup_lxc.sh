@@ -28,7 +28,7 @@ pct create $CTID $STORAGE:vztmpl/$TEMPLATE_NAME --hostname hausverwaltung-app \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp --memory 2048 --cores 2 --start 1
 
 echo "Warte 10 Sekunden auf Bootvorgang..."
-sleep 10
+sleep 20
 
 # 3. System-Updates & Abhängigkeiten installieren
 pct exec $CTID -- apt update
