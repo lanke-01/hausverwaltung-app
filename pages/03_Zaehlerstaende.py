@@ -54,39 +54,28 @@ else:
                 st.success("Gespeichert!")
 
     with tab3:
-        st.subheader("Wallbox-Differenzmessung")
-        cur.execute("SELECT id, meter_number FROM meters WHERE meter_type = 'Strom' AND is_submeter = FALSE")
-        main_m = cur.fetchall()
-        cur.execute("SELECT id, meter_number FROM meters WHERE meter_type = 'Strom' AND is_submeter = TRUE")
-        sub_m = cur.fetchall()
+    def get_consumption(m_id, jahr):
+    # Stand vom Anfang des Jahres (z.B. 01.01.2025)
+    cur.execute("""
+        SELECT reading_value FROM meter_readings 
+        WHERE meter_id = %s AND reading_date <= %s 
+        ORDER BY reading_date DESC LIMIT 1
+    """, (m_id, f"{jahr}-01-01"))
+    res_start = cur.fetchone()
 
-        if main_m and sub_m:
-            m_id = st.selectbox("Hauptzähler", [m[0] for m in main_m], format_func=lambda x: next(m[1] for m in main_m if m[0] == x))
-            s_id = st.selectbox("Wallbox", [m[0] for m in sub_m], format_func=lambda x: next(m[1] for m in sub_m if m[0] == x))
-            preis = st.number_input("Preis pro kWh", value=0.35)
-            jahr = st.number_input("Abrechnungsjahr", value=2024)
+    # Stand vom Ende des Jahres / Anfang Folgejahr (z.B. 01.01.2026)
+    cur.execute("""
+        SELECT reading_value FROM meter_readings 
+        WHERE meter_id = %s AND reading_date >= %s 
+        ORDER BY reading_date ASC LIMIT 1
+    """, (m_id, f"{jahr+1}-01-01"))
+    res_ende = cur.fetchone()
 
-            if st.button("Berechnen"):
-                def get_c(mid, j):
-                    cur.execute("SELECT reading_value FROM meter_readings WHERE meter_id = %s AND EXTRACT(YEAR FROM reading_date) = %s ORDER BY reading_date ASC LIMIT 1", (mid, j))
-                    r1 = cur.fetchone()
-                    cur.execute("SELECT reading_value FROM meter_readings WHERE meter_id = %s AND EXTRACT(YEAR FROM reading_date) = %s ORDER BY reading_date DESC LIMIT 1", (mid, j))
-                    r2 = cur.fetchone()
-                    return float(r2[0] - r1[0]) if r1 and r2 else 0.0
-                
-                mv, sv = get_c(m_id, jahr), get_c(s_id, jahr)
-                st.session_state['calc'] = {'netto': (mv-sv)*preis, 'sub': sv*preis, 'jahr': jahr}
-                st.write(f"Wallbox: {sv:.2f} kWh ({st.session_state['calc']['sub']:.2f} €)")
-
-            if 'calc' in st.session_state:
-                cur.execute("SELECT id, first_name, last_name FROM tenants")
-                tenants = {f"{r[1]} {r[2]}": r[0] for r in cur.fetchall()}
-                target = st.selectbox("Mieter zuweisen", list(tenants.keys()))
-                if st.button("Buchen"):
-                    cur.execute("INSERT INTO operating_expenses (expense_type, amount, distribution_key, expense_year, tenant_id) VALUES (%s, %s, %s, %s, -1)", ("Allgemeinstrom (Netto)", st.session_state['calc']['netto'], "area", st.session_state['calc']['jahr']))
-                    cur.execute("INSERT INTO operating_expenses (expense_type, amount, distribution_key, expense_year, tenant_id) VALUES (%s, %s, %s, %s, %s)", ("Wallbox-Strom", st.session_state['calc']['sub'], "direct", st.session_state['calc']['jahr'], tenants[target]))
-                    conn.commit()
-                    st.success("Erfolgreich gebucht!")
+    if res_start and res_ende:
+        # Falls Zähler getauscht wurde oder Rückwärtstausch (wie im Screenshot): 
+        # Wir nehmen den absoluten Unterschied
+        return float(abs(res_ende[0] - res_start[0]))
+    return 0.0
 
     with tab4:
         st.subheader("Historie bearbeiten")
