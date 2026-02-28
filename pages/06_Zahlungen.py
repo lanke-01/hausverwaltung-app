@@ -1,5 +1,6 @@
 import streamlit as st
 import psycopg2
+import pandas as pd
 from datetime import datetime
 
 def get_direct_conn():
@@ -20,33 +21,27 @@ if not conn:
 else:
     cur = conn.cursor()
     
-    # 1. Aktive Mieter laden
+    # 1. Alle Mieter laden (für Eingabe und Filter)
     cur.execute("""
         SELECT t.id, t.first_name, t.last_name, a.unit_name 
         FROM tenants t
         LEFT JOIN apartments a ON t.apartment_id = a.id
-        WHERE t.move_out IS NULL 
         ORDER BY t.last_name
     """)
     tenants = cur.fetchall()
+    tenant_options = {f"{t[1]} {t[2]} (Wohnung: {t[3] or 'N/A'})": t[0] for t in tenants}
 
+    # --- EINGABE-BEREICH ---
     st.subheader("➕ Neue Zahlung verbuchen")
-    
     if not tenants:
-        st.warning("⚠️ Keine aktiven Mieter gefunden.")
-        st.info("Bitte lege zuerst in der Mieterverwaltung einen Mieter an.")
+        st.warning("⚠️ Keine Mieter gefunden.")
     else:
-        # Auswahl & Eingabe ohne st.form (sicherer gegen Streamlit-Bugs)
-        t_options = {f"{t[1]} {t[2]} (Wohnung: {t[3] or 'N/A'})": t[0] for t in tenants}
-        sel_tenant = st.selectbox("Mieter auswählen", list(t_options.keys()))
+        sel_tenant = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="input_tenant")
         
         col1, col2, col3 = st.columns(3)
-        with col1:
-            amount = st.number_input("Betrag (€)", min_value=0.0, step=10.0)
-        with col2:
-            pay_date = st.date_input("Zahlungsdatum", value=datetime.now())
-        with col3:
-            pay_type = st.selectbox("Typ", ["Miete", "Nebenkosten-Nachzahlung", "Sonstiges"])
+        amount = col1.number_input("Betrag (€)", min_value=0.0, step=10.0)
+        pay_date = col2.date_input("Zahlungsdatum", value=datetime.now())
+        pay_type = col3.selectbox("Typ", ["Miete", "Nebenkosten-Nachzahlung", "Sonstiges"])
         
         note = st.text_input("Notiz (optional)")
 
@@ -55,7 +50,7 @@ else:
                 cur.execute("""
                     INSERT INTO payments (tenant_id, amount, payment_date, payment_type, note)
                     VALUES (%s, %s, %s, %s, %s)
-                """, (t_options[sel_tenant], amount, pay_date, pay_type, note))
+                """, (tenant_options[sel_tenant], amount, pay_date, pay_type, note))
                 conn.commit()
                 st.success(f"✅ Zahlung für {sel_tenant} verbucht!")
                 st.rerun()
@@ -64,23 +59,54 @@ else:
 
     st.divider()
 
-    # --- HISTORIE ---
-    st.subheader("Letzte 20 Geldeingänge")
+    # --- FILTER- & HISTORIE-BEREICH ---
+    st.subheader("🔍 Zahlungsverlauf")
+    
+    # Filter-Auswahl
+    filter_tenant = st.selectbox("Nach Mieter filtern", ["Alle anzeigen"] + list(tenant_options.keys()))
+    
     try:
-        cur.execute("""
-            SELECT p.payment_date, t.first_name, t.last_name, p.amount, p.payment_type
+        query = """
+            SELECT p.id, p.payment_date, t.first_name, t.last_name, p.amount, p.payment_type, p.note
             FROM payments p
             JOIN tenants t ON p.tenant_id = t.id
-            ORDER BY p.id DESC LIMIT 20
-        """)
+        """
+        params = []
+        
+        if filter_tenant != "Alle anzeigen":
+            query += " WHERE p.tenant_id = %s"
+            params.append(tenant_options[filter_tenant])
+        
+        query += " ORDER BY p.payment_date DESC"
+        
+        cur.execute(query, params)
         rows = cur.fetchall()
+        
         if rows:
-            df = [{"Datum": r[0], "Mieter": f"{r[1]} {r[2]}", "Betrag": f"{r[3]:.2f} €", "Typ": r[4]} for r in rows]
-            st.table(df)
+            # Daten für Tabelle aufbereiten
+            df_data = []
+            for r in rows:
+                df_data.append({
+                    "ID": r[0],
+                    "Datum": r[1].strftime("%d.%m.%Y"),
+                    "Mieter": f"{r[2]} {r[3]}",
+                    "Betrag": f"{r[4]:.2f} €",
+                    "Typ": r[5],
+                    "Notiz": r[6] or ""
+                })
+            
+            # Anzeige als interaktive Tabelle
+            st.dataframe(df_data, use_container_width=True, hide_index=True)
+            
+            # Kleine Statistik zum Filter
+            total_sum = sum(r[4] for r in rows)
+            st.metric(f"Summe ({filter_tenant})", f"{total_sum:.2f} €")
+            
         else:
-            st.info("Noch keine Zahlungen vorhanden.")
-    except:
-        st.info("Zahlungstabelle ist noch leer.")
+            st.info("Keine Zahlungen für diesen Filter gefunden.")
+            
+    except Exception as e:
+        st.info("Die Zahlungstabelle konnte nicht geladen werden.")
 
     cur.close()
     conn.close()
