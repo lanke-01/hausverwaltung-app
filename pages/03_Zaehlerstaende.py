@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import psycopg2
-from datetime import datetime
+from datetime import datetime, date
 
 # --- DATENBANK VERBINDUNG ---
 def get_direct_conn():
