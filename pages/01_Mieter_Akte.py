@@ -67,9 +67,7 @@ else:
 
                     st.divider()
                     st.subheader(f"📅 Zahlungsfluss & Saldo {jahr}")
-                    st.caption("Überzahlungen werden automatisch in den Folgemonat übernommen.")
 
-                    # Zahlungen für das gewählte Jahr laden
                     cur.execute("""
                         SELECT payment_date, amount, note 
                         FROM payments 
@@ -82,69 +80,96 @@ else:
                     monate_namen = ["Januar", "Februar", "März", "April", "Mai", "Juni", 
                                     "Juli", "August", "September", "Oktober", "November", "Dezember"]
                     
-                    vortrag_saldo = 0.0  # Übertrag aus dem Vormonat
-
+                    vortrag_saldo = 0.0
                     for m_idx, m_name in enumerate(monate_namen, 1):
-                        # 1. Aktivitäts-Check (Einzug/Auszug berücksichtigen)
                         erster_tag_monat = date(jahr, m_idx, 1)
-                        if m_idx == 12: letzter_tag_monat = date(jahr, 12, 31)
-                        else: letzter_tag_monat = date(jahr, m_idx + 1, 1)
+                        letzter_tag_monat = date(jahr, m_idx, 28) # Vereinfachte Prüfung
 
                         ist_aktiv = True
                         if m_in and m_in > letzter_tag_monat: ist_aktiv = False
                         if m_out and m_out < erster_tag_monat: ist_aktiv = False
 
-                        # 2. Ist-Zahlungen in diesem Monat summieren
                         ist_monat = sum(float(p[1]) for p in all_payments if p[0].month == m_idx)
                         
                         if not ist_aktiv:
-                            status = "💤 Inaktiv"
-                            aktuelles_soll = 0.0
-                            differenz_monat = 0.0
-                            vortrag_saldo = 0.0 # Inaktive Monate resetten den Saldo meistens
+                            status, aktuelles_soll, diff_monat, vortrag_saldo = "💤 Inaktiv", 0.0, 0.0, 0.0
                         else:
                             aktuelles_soll = soll_gesamt
-                            # Saldo-Logik: Was reinkommt + was noch da war
-                            verfuegbar_gesamt = ist_monat + vortrag_saldo
-                            differenz_monat = verfuegbar_gesamt - aktuelles_soll
-                            
-                            if verfuegbar_gesamt >= aktuelles_soll - 0.01:
-                                status = "✅ Bezahlt"
-                            elif verfuegbar_gesamt > 0:
-                                status = "⚠️ Teilgezahlt"
-                            else:
-                                status = "❌ Rückstand"
-                            
-                            # Der Saldo für den NÄCHSTEN Monat ist die aktuelle Differenz
-                            vortrag_saldo = differenz_monat
+                            verfuegbar = ist_monat + vortrag_saldo
+                            diff_monat = verfuegbar - aktuelles_soll
+                            status = "✅ Bezahlt" if verfuegbar >= aktuelles_soll - 0.01 else ("⚠️ Teil" if verfuegbar > 0 else "❌ Rückstand")
+                            vortrag_saldo = diff_monat
 
-                        monats_daten.append({
-                            "Monat": m_name,
-                            "Soll (€)": f"{aktuelles_soll:.2f}",
-                            "Ist gezahlt (€)": f"{ist_monat:.2f}",
-                            "Saldo / Übertrag (€)": f"{differenz_monat:.2f}",
-                            "Status": status
-                        })
+                        monats_daten.append({"Monat": m_name, "Soll (€)": f"{aktuelles_soll:.2f}", "Ist (€)": f"{ist_monat:.2f}", "Saldo (€)": f"{diff_monat:.2f}", "Status": status})
 
-                    # Anzeige als Tabelle
-                    df_fluss = pd.DataFrame(monats_daten)
-                    st.table(df_fluss)
+                    st.table(pd.DataFrame(monats_daten))
 
-                    with st.expander("🔍 Alle Einzelbuchungen dieses Jahr"):
-                        if all_payments:
-                            df_p = pd.DataFrame(all_payments, columns=["Datum", "Betrag", "Notiz"])
-                            st.dataframe(df_p, use_container_width=True)
-                        else:
-                            st.info("Keine Zahlungen im System gefunden.")
-
-            # --- TAB 2: NEBENKOSTENABRECHNUNG ---
+            # --- TAB 2: VOLL FUNKTIONSFÄHIGE NEBENKOSTENABRECHNUNG ---
             with tab2:
-                # Hier bleibt dein Code für die Berechnung der Betriebskosten
-                st.info("Hier werden die Betriebskosten laut 'operating_expenses' berechnet.")
-                # (Abrechnungs-Logik wie gehabt...)
+                st.subheader(f"Abrechnung für das Jahr {jahr}")
+                
+                # 1. Haus-Gesamtwerte & Mieter-Daten laden
+                cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants, total_units FROM landlord_settings LIMIT 1")
+                h_data = cur.fetchone()
+                
+                cur.execute("SELECT a.area, t.occupants, t.move_in, t.move_out, t.monthly_prepayment, a.unit_name, t.first_name, t.last_name FROM tenants t JOIN apartments a ON t.apartment_id = a.id WHERE t.id = %s", (t_id,))
+                m_data = cur.fetchone()
+
+                if h_data and m_data:
+                    # Zeitraum berechnen
+                    m_start = max(m_data[2] or date(jahr,1,1), date(jahr,1,1))
+                    m_ende = min(m_data[3] or date(jahr,12,31), date(jahr,12,31))
+                    mieter_tage = (m_ende - m_start).days + 1
+                    jahr_tage = 366 if (jahr % 4 == 0 and (jahr % 100 != 0 or jahr % 400 == 0)) else 365
+                    anteil_jahr = mieter_tage / jahr_tage
+
+                    # Ausgaben laden
+                    cur.execute("SELECT expense_type, amount, distribution_key FROM operating_expenses WHERE expense_year = %s", (jahr,))
+                    expenses = cur.fetchall()
+                    
+                    rows = []
+                    summe_mieter = 0
+                    for exp in expenses:
+                        name, gesamt_betrag, key = exp
+                        betrag_f = float(gesamt_betrag)
+                        
+                        # Anteil berechnen
+                        if key == "area" and h_data[5] > 0:
+                            anteil = (betrag_f / float(h_data[5])) * float(m_data[0]) * anteil_jahr
+                        elif key == "persons" and h_data[6] > 0:
+                            anteil = (betrag_f / float(h_data[6])) * float(m_data[1]) * anteil_jahr
+                        elif key == "unit" and h_data[7] > 0:
+                            anteil = (betrag_f / float(h_data[7])) * anteil_jahr
+                        else:
+                            anteil = 0
+                        
+                        summe_mieter += anteil
+                        rows.append([name, f"{betrag_f:.2f} €", DEUTSCHE_SCHLUESSEL.get(key, key), f"{anteil:.2f} €"])
+
+                    st.table(pd.DataFrame(rows, columns=["Kostenart", "Gesamt Haus", "Verteilerschlüssel", "Anteil Mieter"]))
+                    
+                    voraus_anteilig = float(m_data[4]) * (mieter_tage / 30.4375) # Grobe Schätzung der Monate
+                    saldo = summe_mieter - voraus_anteilig
+
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Gesamtkosten (anteilig)", f"{summe_mieter:.2f} €")
+                    c2.metric("Gezahlte Vorauszahlung", f"{voraus_anteilig:.2f} €")
+                    c3.metric("Saldo", f"{saldo:.2f} €", delta_color="inverse")
+
+                    if st.button("🖨️ Abrechnung als PDF erstellen"):
+                        try:
+                            m_stats = {"area": m_data[0], "occupants": m_data[1]}
+                            h_stats = {"name": h_data[0], "street": h_data[1], "city": h_data[2], "iban": h_data[3], "bank": h_data[4], "total_area": h_data[5], "total_occupants": h_data[6]}
+                            pdf_path = generate_nebenkosten_pdf(f"{m_data[6]} {m_data[7]}", m_data[5], f"{m_start} - {m_ende}", mieter_tage, rows, summe_mieter, voraus_anteilig, saldo, m_stats, h_stats)
+                            with open(pdf_path, "rb") as f:
+                                st.download_button("📩 Download PDF", f, file_name=f"Abrechnung_{m_data[7]}.pdf")
+                        except Exception as e:
+                            st.error(f"PDF-Fehler: {e}")
+                else:
+                    st.warning("⚠️ Bitte Haus-Stammdaten und Mieterdaten prüfen.")
 
     except Exception as e:
-        st.error(f"Datenbank- oder Rechenfehler: {e}")
+        st.error(f"Fehler: {e}")
     finally:
         cur.close()
         conn.close()
