@@ -175,26 +175,46 @@ else:
             st.info("Keine Stromzähler gefunden.")
 
     # --- TAB 4: VERLAUF & KORREKTUR ---
-    with tab4:
-        st.subheader("Ablesehistorie")
-        cur.execute("""
-            SELECT r.id, m.meter_number, m.meter_type, r.reading_date, r.reading_value, COALESCE(a.unit_name, 'Haus')
+ with tab4:
+        st.subheader("Ablesehistorie bearbeiten")
+        # Daten laden
+        query = """
+            SELECT r.id, m.meter_number, m.meter_type, r.reading_date, r.reading_value, COALESCE(a.unit_name, 'Haus') as unit
             FROM meter_readings r
             JOIN meters m ON r.meter_id = m.id
             LEFT JOIN apartments a ON m.apartment_id = a.id
-            ORDER BY r.reading_date DESC, r.id DESC LIMIT 50
-        """)
-        history = cur.fetchall()
-        for rid, m_num, m_type, r_date, r_val, unit in history:
-            c1, c2, c3, c4 = st.columns([2,2,2,1])
-            c1.write(f"{r_date}")
-            c2.write(f"**{m_type}** ({m_num})")
-            c3.write(f"{unit}: **{r_val}**")
-            if c4.button("🗑️", key=f"del_{rid}"):
-                cur.execute("DELETE FROM meter_readings WHERE id = %s", (rid,))
-                conn.commit()
-                st.rerun()
-            st.divider()
+            ORDER BY r.reading_date DESC
+        """
+        df_history = pd.read_sql(query, conn)
+        
+        # Editor anzeigen
+        edited_df = st.data_editor(
+            df_history, 
+            column_config={
+                "id": None, # ID verstecken
+                "reading_date": st.column_config.DateColumn("Datum"),
+                "reading_value": st.column_config.NumberColumn("Zählerstand", format="%.2f"),
+                "meter_number": st.column_config.TextColumn("Zählernummer", disabled=True),
+                "meter_type": st.column_config.TextColumn("Typ", disabled=True),
+                "unit": st.column_config.TextColumn("Einheit", disabled=True)
+            },
+            num_rows="dynamic",
+            use_container_width=True,
+            key="history_editor"
+        )
 
+        if st.button("💾 Änderungen an Ständen speichern"):
+            try:
+                for index, row in edited_df.iterrows():
+                    cur.execute("""
+                        UPDATE meter_readings 
+                        SET reading_value = %s, reading_date = %s 
+                        WHERE id = %s
+                    """, (row['reading_value'], row['reading_date'], row['id']))
+                conn.commit()
+                st.success("Änderungen gespeichert!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Fehler beim Speichern: {e}")
     cur.close()
     conn.close()
