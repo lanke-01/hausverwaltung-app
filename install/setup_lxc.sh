@@ -45,23 +45,25 @@ pct exec $CTID -- bash -c "update-locale LANG=de_DE.UTF-8"
 # 4. GitHub Projekt laden
 pct exec $CTID -- bash -c "git clone https://github.com/lanke-01/hausverwaltung-app.git /opt/hausverwaltung"
 
-# --- NEU: RECHTE FÜR POSTGRES SETZEN ---
+# --- RECHTE-FIX: Damit postgres die init_db.sql lesen kann ---
 pct exec $CTID -- chown -R postgres:postgres /opt/hausverwaltung
 pct exec $CTID -- chmod -R 755 /opt/hausverwaltung
 
 # 5. Datenbank-Konfiguration
 echo "--- Datenbank-Rechte setzen ---"
 pct exec $CTID -- bash -c "
-sed -i 's/local   all             postgres                                peer/local   all             postgres                                trust/' /etc/postgresql/15/main/pg_hba.conf
-sed -i 's/host    all             all             127.0.0.1\/32            scram-sha-256/host    all             all             127.0.0.1\/32            trust/' /etc/postgresql/15/main/pg_hba.conf
+# Robuste sed-Befehle (ersetzen die Zeile egal wie viele Leerzeichen dazwischen sind)
+sed -i '/local.*all.*postgres.*peer/s/peer/trust/' /etc/postgresql/15/main/pg_hba.conf
+sed -i '/host.*all.*all.*127.0.0.1\/32.*scram-sha-256/s/scram-sha-256/trust/' /etc/postgresql/15/main/pg_hba.conf
+
 systemctl restart postgresql
+sleep 3 # Wichtig: Kurz warten, bis der Dienst wirklich da ist
 "
 
 # 6. Datenbank & Tabellen initialisieren
 echo "--- Datenbank-Schema erstellen ---"
 pct exec $CTID -- bash -c "su - postgres -c 'psql -c \"CREATE DATABASE hausverwaltung;\"'"
-
-# Führt deine init_db.sql aus
+# Jetzt klappt es garantiert:
 pct exec $CTID -- bash -c "su - postgres -c \"psql -d hausverwaltung -f /opt/hausverwaltung/init_db.sql\""
 
 # --- FIX: operating_expenses Tabelle sicherstellen ---
