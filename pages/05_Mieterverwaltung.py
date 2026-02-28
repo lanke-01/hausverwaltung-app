@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import psycopg2
-from datetime import datetime  # <-- Dieser Import hat gefehlt!
+from datetime import datetime
 
 def get_direct_conn():
     try:
@@ -21,10 +21,11 @@ if not conn:
 else:
     cur = conn.cursor()
     
-    # Sicherstellen, dass die Spalten existieren
+    # Sicherstellen, dass alle benötigten Spalten existieren
     cur.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS occupants INTEGER DEFAULT 1")
     cur.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS move_in DATE")
     cur.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS move_out DATE")
+    cur.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS base_rent NUMERIC(10,2) DEFAULT 0") # NEU
     conn.commit()
 
     # --- ÜBERSICHTSTABELLE ---
@@ -37,8 +38,9 @@ else:
             t.last_name AS nachname, 
             a.unit_name AS wohnung, 
             t.occupants AS personen,
-            t.move_in AS einzug,
+            t.base_rent AS kaltmiete,
             t.monthly_prepayment AS vorschuss,
+            t.move_in AS einzug,
             t.move_out AS auszug
         FROM tenants t
         LEFT JOIN apartments a ON t.apartment_id = a.id
@@ -55,18 +57,17 @@ else:
             st.dataframe(df_tenants, use_container_width=True)
 
             # --- BEARBEITUNGS-BEREICH ---
-            with st.expander("✏️ Mieter bearbeiten (Einzug/Auszug anpassen)", expanded=False):
+            with st.expander("✏️ Mieter bearbeiten", expanded=False):
                 tenant_list = {
                     f"{r['vorname']} {r['nachname']} (ID: {r['id']})": r['id'] 
                     for _, r in df_tenants.iterrows()
                 }
                 
-                selected_label = st.selectbox("Mieter zum Bearbeiten wählen", list(tenant_list.keys()))
+                selected_label = st.selectbox("Mieter wählen", list(tenant_list.keys()))
                 t_id_edit = tenant_list[selected_label]
 
-                # Daten laden
                 cur.execute("""
-                    SELECT first_name, last_name, occupants, monthly_prepayment, apartment_id, move_in, move_out 
+                    SELECT first_name, last_name, occupants, monthly_prepayment, apartment_id, move_in, move_out, base_rent 
                     FROM tenants WHERE id = %s
                 """, (t_id_edit,))
                 curr = cur.fetchone()
@@ -78,43 +79,31 @@ else:
                             new_f_name = st.text_input("Vorname", value=curr[0])
                             new_l_name = st.text_input("Nachname", value=curr[1])
                             new_occ = st.number_input("Personenanzahl", min_value=1, value=int(curr[2] or 1))
-                            # EINZUG
-                            einzug_val = curr[5] if curr[5] else datetime.now().date()
-                            new_move_in = st.date_input("Einzugsdatum", value=einzug_val)
+                            new_move_in = st.date_input("Einzugsdatum", value=curr[5] or datetime.now().date())
                             
                         with col2:
+                            new_base_rent = st.number_input("Kaltmiete (€)", min_value=0.0, value=float(curr[7] or 0.0)) # NEU
                             new_pre = st.number_input("NK-Vorschuss (€)", min_value=0.0, value=float(curr[3] or 0.0))
                             
-                            # AUSZUG
-                            auszug_aktiv = st.checkbox("Auszugsdatum setzen (Mieter zieht aus)", value=curr[6] is not None)
-                            auszug_val = curr[6] if curr[6] else datetime.now().date()
-                            new_move_out = st.date_input("Auszugsdatum", value=auszug_val)
+                            auszug_aktiv = st.checkbox("Auszugsdatum setzen", value=curr[6] is not None)
+                            new_move_out = st.date_input("Auszugsdatum", value=curr[6] or datetime.now().date())
                             
-                            # Wohnung wählen
                             cur.execute("SELECT id, unit_name FROM apartments ORDER BY unit_name")
                             apts = cur.fetchall()
                             apt_dict = {a[1]: a[0] for a in apts}
-                            apt_names = list(apt_dict.keys())
-                            
-                            current_apt_id = curr[4]
-                            try:
-                                current_apt_name = [name for name, aid in apt_dict.items() if aid == current_apt_id][0]
-                                idx = apt_names.index(current_apt_name)
-                            except:
-                                idx = 0
-                            new_apt_name = st.selectbox("Wohnung", apt_names, index=idx)
+                            new_apt_name = st.selectbox("Wohnung", list(apt_dict.keys()))
 
                         if st.form_submit_button("💾 Änderungen speichern"):
                             final_move_out = new_move_out if auszug_aktiv else None
                             cur.execute("""
                                 UPDATE tenants 
                                 SET first_name=%s, last_name=%s, occupants=%s, monthly_prepayment=%s, 
-                                    apartment_id=%s, move_in=%s, move_out=%s
+                                    apartment_id=%s, move_in=%s, move_out=%s, base_rent=%s
                                 WHERE id=%s
                             """, (new_f_name, new_l_name, new_occ, new_pre, 
-                                  apt_dict[new_apt_name], new_move_in, final_move_out, t_id_edit))
+                                  apt_dict[new_apt_name], new_move_in, final_move_out, new_base_rent, t_id_edit))
                             conn.commit()
-                            st.success("✅ Mieterdaten inklusive Zeiträumen aktualisiert!")
+                            st.success("✅ Mieterdaten aktualisiert!")
                             st.rerun()
         else:
             st.info("Keine Mieter gefunden.")
@@ -133,21 +122,20 @@ else:
             add_occ = st.number_input("Personenanzahl", min_value=1, value=1)
             add_in = st.date_input("Einzugsdatum")
         with c2:
+            add_base_rent = st.number_input("Mtl. Kaltmiete (€)", min_value=0.0, step=50.0) # NEU
             add_pre = st.number_input("Mtl. NK-Vorschuss (€)", min_value=0.0, step=10.0)
             cur.execute("SELECT id, unit_name FROM apartments ORDER BY unit_name")
             apts_new = cur.fetchall()
             if apts_new:
                 apt_dict_new = {a[1]: a[0] for a in apts_new}
                 add_apt = st.selectbox("Wohnung", list(apt_dict_new.keys()))
-            else:
-                st.warning("Bitte zuerst Wohnungen anlegen!")
         
         if st.form_submit_button("Mieter anlegen"):
             if add_f_name and add_l_name and apts_new:
                 cur.execute("""
-                    INSERT INTO tenants (first_name, last_name, occupants, monthly_prepayment, apartment_id, move_in)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                """, (add_f_name, add_l_name, add_occ, add_pre, apt_dict_new[add_apt], add_in))
+                    INSERT INTO tenants (first_name, last_name, occupants, monthly_prepayment, apartment_id, move_in, base_rent)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (add_f_name, add_l_name, add_occ, add_pre, apt_dict_new[add_apt], add_in, add_base_rent))
                 conn.commit()
                 st.success("Mieter angelegt!")
                 st.rerun()
