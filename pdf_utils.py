@@ -127,7 +127,6 @@ def generate_nebenkosten_pdf(mieter_name, wohnung, zeitraum, tage, tabelle, gesa
     
 
   # --- Footer / Bankdaten (DYNAMISCH AUS DATENBANK) ---
-
     pdf.set_y(-40)
     pdf.set_font("Helvetica", '', 8)
     pdf.set_text_color(100, 100, 100)
@@ -153,4 +152,3 @@ def generate_nebenkosten_pdf(mieter_name, wohnung, zeitraum, tage, tabelle, gesa
     path = f"/tmp/Abrechnung_{mieter_name.replace(' ', '_')}_{zeit_suffix}.pdf"
     pdf.output(path)
     return path
-def generate_payment_history_pdf(mieter_name, jahr, history_data, h_stats, zeitraum_text):
