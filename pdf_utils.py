@@ -152,3 +152,51 @@ def generate_nebenkosten_pdf(mieter_name, wohnung, zeitraum, tage, tabelle, gesa
     path = f"/tmp/Abrechnung_{mieter_name.replace(' ', '_')}_{zeit_suffix}.pdf"
     pdf.output(path)
     return path
+
+    def generate_payment_history_pdf(mieter_name, jahr, history_data, h_stats):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Header wie in der Abrechnung
+    pdf.set_font("Helvetica", '', 8)
+    pdf.cell(0, 5, f"{h_stats['name']}, {h_stats['street']}, {h_stats['city']}", ln=True)
+    pdf.ln(10)
+    
+    pdf.set_font("Helvetica", '', 11)
+    pdf.cell(0, 6, str(mieter_name), ln=True)
+    pdf.cell(0, 6, "Eintracht Straße 160", ln=True)
+    pdf.cell(0, 6, "42277 Wuppertal", ln=True)
+    pdf.ln(15)
+    
+    pdf.set_font("Helvetica", 'B', 16)
+    pdf.cell(0, 10, f"Zahlungsverlauf / Kontoauszug {jahr}", ln=True)
+    pdf.set_font("Helvetica", '', 10)
+    pdf.cell(0, 10, f"Erstellt am: {datetime.now().strftime('%d.%m.%Y')}", ln=True)
+    pdf.ln(5)
+
+    # Tabelle Kopf
+    pdf.set_fill_color(240, 240, 240)
+    pdf.set_font("Helvetica", 'B', 10)
+    h = 9
+    pdf.cell(40, h, "Monat", 1, 0, 'L', fill=True)
+    pdf.cell(40, h, "Soll (Miete)", 1, 0, 'C', fill=True)
+    pdf.cell(40, h, "Ist (Gezahlt)", 1, 0, 'C', fill=True)
+    pdf.cell(40, h, "Saldo", 1, 0, 'C', fill=True)
+    pdf.cell(30, h, "Status", 1, 1, 'C', fill=True)
+
+    # Tabelleninhalt
+    pdf.set_font("Helvetica", '', 10)
+    for row in history_data:
+        pdf.cell(40, h, str(row['Monat']), 1)
+        pdf.cell(40, h, f"{row['Soll (€)']} EUR", 1, 0, 'R')
+        pdf.cell(40, h, f"{row['Ist (€)']} EUR", 1, 0, 'R')
+        pdf.cell(40, h, f"{row['Saldo (€)']} EUR", 1, 0, 'R')
+        
+        # Status-Farbe (Text)
+        status_text = row['Status'].replace("✅ ", "").replace("❌ ", "").replace("💤 ", "")
+        pdf.cell(30, h, status_text, 1, 1, 'C')
+
+    # Speicherpfad
+    path = f"/tmp/Zahlungsverlauf_{mieter_name.replace(' ', '_')}_{jahr}.pdf"
+    pdf.output(path)
+    return path
