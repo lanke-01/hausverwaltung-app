@@ -114,7 +114,8 @@ def generate_payment_history_pdf(mieter_name, jahr, history_data, h_stats, zeitr
         pdf.cell(widths[2], 8, f"{row['Ist (€)']} EUR", 1, 0, 'R')
         pdf.cell(widths[3], 8, f"{row['Saldo (€)']} EUR", 1, 0, 'R')
         pdf.cell(widths[4], 8, pdf.clean_text(row['Status']), 1, 1, 'C')
-
+        st_clean = row['Status'].replace("✅ ", "").replace("❌ ", "").replace("💤 ", "")
+        
     path = f"/tmp/Kontoauszug_{mieter_name.replace(' ', '_')}.pdf"
     pdf.output(path)
     return path
