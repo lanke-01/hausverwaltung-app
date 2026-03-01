@@ -62,9 +62,17 @@ else:
             if m_row and h_row:
                 # --- TAB 1: ZAHLUNGSFLUSS ---
                 with tab1:
+                    
+                    # Zeitraum-Variablen definieren
                     ein = m_row[2].strftime('%d.%m.%Y') if m_row[2] else "unbekannt"
                     aus = m_row[3].strftime('%d.%m.%Y') if m_row[3] else "laufend"
-                    st.info(f"🏠 **Mietverhältnis:** von {ein} bis {aus}")
+
+                    # Anzeige mit Mietername (m_row[0] ist Vorname, m_row[1] ist Nachname)
+                    st.info(f"👤 **Mieter:** {m_row[0]} {m_row[1]} | 🏠 **Mietverhältnis:** von {ein} bis {aus}")
+
+
+
+
 
                     cur.execute("SELECT payment_date, amount FROM payments WHERE tenant_id = %s AND EXTRACT(YEAR FROM payment_date) = %s", (t_id, jahr))
                     payments = cur.fetchall()
