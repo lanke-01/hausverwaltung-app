@@ -1,6 +1,12 @@
 from fpdf import FPDF
 from datetime import datetime
 
+            # Im Header oder direkt nach dem Erstellen der Seite:
+    pdf.set_font("Helvetica", 'B', 10)
+    pdf.cell(45, 7, "Abrechnungszeitraum:", 0)
+    pdf.set_font("Helvetica", '', 10)
+    pdf.cell(0, 7, str(zeitraum), 0, 1) # Hier wird nun z.B. "01.01.2024 - 15.08.2024" gedruckt
+
 def generate_nebenkosten_pdf(mieter_name, wohnung, zeitraum, tage, tabelle, gesamt, voraus, diff, m_stats, h_stats):
     class NK_PDF(FPDF):
         def header(self):
