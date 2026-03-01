@@ -44,6 +44,7 @@ else:
             
             tab1, tab2 = st.tabs(["📋 Mieter-Details & Zahlungsfluss", "🧮 Nebenkostenabrechnung"])
 
+            # --- TAB 1: STAMMDATEN & ZAHLUNGEN ---
             with tab1:
                 cur.execute("SELECT first_name, last_name, move_in, move_out, monthly_prepayment, occupants, base_rent FROM tenants WHERE id = %s", (t_id,))
                 t_data = cur.fetchone()
@@ -51,6 +52,7 @@ else:
                     m_in, m_out = t_data[2], t_data[3]
                     st.subheader(f"Stammdaten: {t_data[0]} {t_data[1]}")
                     
+                    # Anzeige Mietverhältnis
                     ein = m_in.strftime('%d.%m.%Y') if m_in else "unbekannt"
                     aus = m_out.strftime('%d.%m.%Y') if m_out else "laufend"
                     st.info(f"🏠 **Mietverhältnis:** von {ein} bis {aus}")
@@ -60,6 +62,8 @@ else:
                     
                     monats_daten = []
                     vortrag_saldo = 0.0
+                    soll_gesamt = float(t_data[6] or 0) + float(t_data[4] or 0)
+                    
                     for i, m_name in enumerate(MONATE_DE):
                         m_idx = i + 1
                         ist_monat = sum(float(p[1]) for p in all_payments if p[0].month == m_idx)
@@ -67,7 +71,6 @@ else:
                         if m_in and m_in > date(jahr, m_idx, 28): ist_aktiv = False
                         if m_out and m_out < date(jahr, m_idx, 1): ist_aktiv = False
                         
-                        soll_gesamt = float(t_data[6] or 0) + float(t_data[4] or 0)
                         if not ist_aktiv:
                             aktuelles_soll, diff_monat, status = 0.0, 0.0, "💤 Inaktiv"
                         else:
@@ -80,8 +83,9 @@ else:
                         monats_daten.append({"Monat": m_name, "Soll (€)": f"{aktuelles_soll:.2f}", "Ist (€)": f"{ist_monat:.2f}", "Saldo (€)": f"{diff_monat:.2f}", "Status": status})
                     st.table(pd.DataFrame(monats_daten))
 
+            # --- TAB 2: NEBENKOSTENABRECHNUNG ---
             with tab2:
-                st.subheader(f"Abrechnung für das Jahr {jahr}")
+                st.subheader(f"Nebenkostenabrechnung {jahr}")
                 cur.execute("SELECT name, street, city, iban, bank_name, total_area, total_occupants, total_units FROM landlord_settings LIMIT 1")
                 h_row = cur.fetchone()
                 cur.execute("SELECT a.area, t.occupants, t.move_in, t.move_out, t.monthly_prepayment, a.unit_name, t.first_name, t.last_name FROM tenants t JOIN apartments a ON t.apartment_id = a.id WHERE t.id = %s", (t_id,))
@@ -103,11 +107,11 @@ else:
                     for exp in expenses:
                         name, gesamt_h, key, exp_t_id = exp[0], float(exp[1]), exp[2], exp[3]
                         anteil = 0.0
-                        d_key = DEUTSCHE_SCHLUESSEL.get(key, key)
                         if exp_t_id:
                             anteil = gesamt_h * zeit_faktor
                             d_key = "Direktzuordnung"
                         else:
+                            d_key = DEUTSCHE_SCHLUESSEL.get(key, key)
                             if key == "area": anteil = (gesamt_h / float(h_row[5])) * float(m_row[0]) * zeit_faktor
                             elif key == "persons": anteil = (gesamt_h / float(h_row[6])) * float(m_row[1]) * zeit_faktor
                             elif key == "unit": anteil = (gesamt_h / (float(h_row[7]) or 6.0)) * zeit_faktor
@@ -125,19 +129,20 @@ else:
                     c2.metric("Vorauszahlungen", f"{voraus_gesamt:.2f} €")
                     c3.metric("Saldo", f"{saldo:.2f} €", delta_color="inverse")
 
-                    # BUTTON WIEDER DA (korrekt eingerückt)
-                    if st.button("🖨️ Abrechnungs-PDF erstellen", key="gen_pdf_btn"):
+                    # --- PDF BUTTON (Außerhalb der Tabellen-Schleife, innerhalb von TAB 2) ---
+                    st.markdown("---")
+                    if st.button("🖨️ PDF Abrechnung erstellen", key="btn_final_pdf"):
                         try:
                             m_stats = {"area": float(m_row[0]), "occupants": int(m_row[1])}
                             h_stats = {"name": str(h_row[0]), "street": str(h_row[1]), "city": str(h_row[2]), "iban": str(h_row[3]), "bank": str(h_row[4]), "total_area": float(h_row[5]), "total_occupants": int(h_row[6]), "total_units": int(h_row[7] or 6)}
                             pdf_path = generate_nebenkosten_pdf(f"{m_row[6]} {m_row[7]}", str(m_row[5]), z_raum, tage_mieter, pdf_rows, summe_mieter, voraus_gesamt, saldo, m_stats, h_stats)
                             with open(pdf_path, "rb") as f:
-                                st.download_button("📩 Download PDF", f, file_name=f"Abrechnung_{m_row[7]}_{jahr}.pdf")
+                                st.download_button("📩 Download PDF-Datei", f, file_name=f"NK_Abrechnung_{m_row[7]}_{jahr}.pdf")
                         except Exception as e:
-                            st.error(f"Fehler: {e}")
+                            st.error(f"Fehler beim Erstellen des PDFs: {e}")
 
     except Exception as e:
-        st.error(f"Datenbankfehler: {e}")
+        st.error(f"Allgemeiner Fehler: {e}")
     finally:
         cur.close()
         conn.close()
