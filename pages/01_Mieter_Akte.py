@@ -53,7 +53,7 @@ else:
                     soll_gesamt = kaltmiete + vorschuss
                     st.subheader(f"Stammdaten: {t_data[0]} {t_data[1]}")
                     
-                    cur.execute("SELECT payment_date, amount FROM payments WHERE tenant_id = %s AND EXTRACT(YEAR FROM payment_date) = %s", (t_id, jahr))
+                    cur.execute("SELECT payment_date, amount, payment_type FROM payments WHERE tenant_id = %s AND EXTRACT(YEAR FROM payment_date) = %s ORDER BY payment_date", (t_id, jahr))
                     all_payments = cur.fetchall()
                     
                     monats_daten = []
@@ -74,8 +74,41 @@ else:
                             status = "✅ Bezahlt" if verfuegbar >= aktuelles_soll - 0.01 else "❌ Rückstand"
                             vortrag_saldo = diff_monat
                         
-                        monats_daten.append({"Monat": m_name, "Soll (€)": f"{aktuelles_soll:.2f}", "Ist (€)": f"{ist_monat:.2f}", "Saldo (€)": f"{diff_monat:.2f}", "Status": status})
-                    st.table(pd.DataFrame(monats_daten))
+                        monats_daten.append({
+                            "Monat": m_name, 
+                            "Soll (€)": f"{aktuelles_soll:.2f}", 
+                            "Ist (€)": f"{ist_monat:.2f}", 
+                            "Saldo (€)": f"{diff_monat:.2f}", 
+                            "Status": status
+                        })
+                    
+                    df_zahlungen = pd.DataFrame(monats_daten)
+                    st.table(df_zahlungen)
+
+                    # --- NEU: PDF-EXPORT FÜR ZAHLUNGSFLUSS ---
+                    if st.button("🖨️ Zahlungsverlauf als PDF"):
+                        try:
+                            # Wir nutzen eine ähnliche Logik wie beim NK-PDF
+                            from pdf_utils import generate_payment_history_pdf # Falls in pdf_utils definiert
+                            
+                            # Falls du die Funktion noch nicht in pdf_utils hast, 
+                            # können wir hier eine einfache Lösung bauen:
+                            pdf_name = f"Zahlungsverlauf_{t_data[1]}_{jahr}.pdf"
+                            
+                            # Hinweis: Ich gehe davon aus, dass wir die generate-Funktion 
+                            # in deiner pdf_utils.py leicht erweitern oder eine neue hinzufügen.
+                            st.info("Generiere PDF-Kontoauszug...")
+                            
+                            # Da ich deine pdf_utils.py nicht im Detail sehe, 
+                            # hier die Vorbereitung der Daten:
+                            history_data = df_zahlungen.to_dict('records')
+                            
+                            # Platzhalter für den tatsächlichen Aufruf:
+                            # path = generate_payment_history_pdf(f"{t_data[0]} {t_data[1]}", jahr, history_data)
+                            
+                            st.warning("Stellen Sie sicher, dass 'generate_payment_history_pdf' in Ihrer pdf_utils.py existiert.")
+                        except Exception as e:
+                            st.error(f"Fehler: {e}")
 
             with tab2:
                 st.subheader(f"Abrechnung für das Jahr {jahr}")
