@@ -1,12 +1,6 @@
 from fpdf import FPDF
 from datetime import datetime
 
-            # Im Header oder direkt nach dem Erstellen der Seite:
-    pdf.set_font("Helvetica", 'B', 10)
-    pdf.cell(45, 7, "Abrechnungszeitraum:", 0)
-    pdf.set_font("Helvetica", '', 10)
-    pdf.cell(0, 7, str(zeitraum), 0, 1) # Hier wird nun z.B. "01.01.2024 - 15.08.2024" gedruckt
-
 def generate_nebenkosten_pdf(mieter_name, wohnung, zeitraum, tage, tabelle, gesamt, voraus, diff, m_stats, h_stats):
     class NK_PDF(FPDF):
         def header(self):
@@ -19,9 +13,8 @@ def generate_nebenkosten_pdf(mieter_name, wohnung, zeitraum, tage, tabelle, gesa
             # 2. Empfängeradresse (Mieter + Hausadresse aus Datenbank)
             self.set_font("Helvetica", '', 11)
             self.cell(0, 6, str(mieter_name), ln=True)
-            # Hier nutzen wir die Adresse des Objekts aus den Einstellungen
-            self.cell(0, 6, h_stats.get('street', 'Eintracht Straße 160'), ln=True)
-            self.cell(0, 6, h_stats.get('city', '42277 Wuppertal'), ln=True)
+            self.cell(0, 6, h_stats.get('street', ''), ln=True)
+            self.cell(0, 6, h_stats.get('city', ''), ln=True)
             self.ln(15)
             
             # 3. Titel und Datum
@@ -34,11 +27,11 @@ def generate_nebenkosten_pdf(mieter_name, wohnung, zeitraum, tage, tabelle, gesa
     pdf = NK_PDF()
     pdf.add_page()
 
-    # Zeitraum & Wohnung Info
+    # --- HIER WAR DER FEHLER: Mietzeitraum Info ---
     pdf.set_font("Helvetica", 'B', 10)
     pdf.cell(45, 7, "Abrechnungszeitraum:", 0)
     pdf.set_font("Helvetica", '', 10)
-    pdf.cell(0, 7, str(zeitraum), 0, 1)
+    pdf.cell(0, 7, f"{zeitraum} ({tage} Tage)", 0, 1)
     
     pdf.set_font("Helvetica", 'B', 10)
     pdf.cell(45, 7, "Einheit / Wohnung:", 0)
@@ -135,6 +128,13 @@ def generate_payment_history_pdf(mieter_name, jahr, history_data, h_stats):
         pdf.cell(40, 9, f"{row['Saldo (€)']} EUR", 1, 0, 'R')
         status_clean = row['Status'].replace("✅ ", "").replace("❌ ", "").replace("💤 ", "")
         pdf.cell(30, 9, status_clean, 1, 1, 'C')
+
+    # Footer mit Bankdaten
+    pdf.set_y(-30)
+    pdf.set_font("Helvetica", '', 8)
+    pdf.set_text_color(100, 100, 100)
+    bank_info = f"Vermieter: {h_stats.get('name')} | IBAN: {h_stats.get('iban')}"
+    pdf.cell(0, 4, bank_info, ln=True, align='C')
 
     path = f"/tmp/Kontoauszug_{mieter_name.replace(' ', '_')}_{jahr}.pdf"
     pdf.output(path)
