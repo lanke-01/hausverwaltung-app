@@ -49,11 +49,8 @@ else:
                 t_data = cur.fetchone()
                 if t_data:
                     m_in, m_out = t_data[2], t_data[3]
-                    kaltmiete, vorschuss = float(t_data[6] or 0), float(t_data[4] or 0)
-                    soll_gesamt = kaltmiete + vorschuss
                     st.subheader(f"Stammdaten: {t_data[0]} {t_data[1]}")
                     
-                    # --- ANZEIGE DES MIETZEITRAUMS IN TAB 1 ---
                     ein = m_in.strftime('%d.%m.%Y') if m_in else "unbekannt"
                     aus = m_out.strftime('%d.%m.%Y') if m_out else "laufend"
                     st.info(f"🏠 **Mietverhältnis:** von {ein} bis {aus}")
@@ -70,6 +67,7 @@ else:
                         if m_in and m_in > date(jahr, m_idx, 28): ist_aktiv = False
                         if m_out and m_out < date(jahr, m_idx, 1): ist_aktiv = False
                         
+                        soll_gesamt = float(t_data[6] or 0) + float(t_data[4] or 0)
                         if not ist_aktiv:
                             aktuelles_soll, diff_monat, status = 0.0, 0.0, "💤 Inaktiv"
                         else:
@@ -94,38 +92,25 @@ else:
                     m_ende = min(m_row[3] or date(jahr,12,31), date(jahr,12,31))
                     tage_mieter = (m_ende - m_start).days + 1
                     zeit_faktor = tage_mieter / (366 if (jahr % 4 == 0) else 365)
-                    
                     z_raum = f"{m_start.strftime('%d.%m.%Y')} - {m_ende.strftime('%d.%m.%Y')}"
                     
-                    # --- ANZEIGE DES ABRECHNUNGSZEITRAUMS IN TAB 2 ---
                     st.success(f"📅 **Abrechnungszeitraum:** {z_raum} ({tage_mieter} Tage)")
 
-                    cur.execute("""
-                        SELECT expense_type, amount, distribution_key, tenant_id 
-                        FROM operating_expenses 
-                        WHERE expense_year = %s 
-                        AND (tenant_id IS NULL OR tenant_id = %s)
-                        AND (tenant_id != -1 OR tenant_id IS NULL)
-                    """, (jahr, t_id))
+                    cur.execute("SELECT expense_type, amount, distribution_key, tenant_id FROM operating_expenses WHERE expense_year = %s AND (tenant_id IS NULL OR tenant_id = %s)", (jahr, t_id))
                     expenses = cur.fetchall()
                     
-                    pdf_rows, display_rows, summe_mieter = [], [], 0
+                    pdf_rows, display_rows, summe_mieter = [], [], 0.0
                     for exp in expenses:
                         name, gesamt_h, key, exp_t_id = exp[0], float(exp[1]), exp[2], exp[3]
                         anteil = 0.0
-                        if exp_t_id is not None and exp_t_id != -1:
+                        d_key = DEUTSCHE_SCHLUESSEL.get(key, key)
+                        if exp_t_id:
                             anteil = gesamt_h * zeit_faktor
                             d_key = "Direktzuordnung"
                         else:
-                            d_key = DEUTSCHE_SCHLUESSEL.get(key, key)
-                            if key == "area" and h_row[5] > 0:
-                                anteil = (gesamt_h / float(h_row[5])) * float(m_row[0]) * zeit_faktor
-                            elif key == "persons" and h_row[6] > 0:
-                                anteil = (gesamt_h / float(h_row[6])) * float(m_row[1]) * zeit_faktor
-                            elif key == "unit":
-                                anteil = (gesamt_h / (float(h_row[7]) or 6.0)) * zeit_faktor
-                            elif key == "direct":
-                                anteil = gesamt_h * zeit_faktor
+                            if key == "area": anteil = (gesamt_h / float(h_row[5])) * float(m_row[0]) * zeit_faktor
+                            elif key == "persons": anteil = (gesamt_h / float(h_row[6])) * float(m_row[1]) * zeit_faktor
+                            elif key == "unit": anteil = (gesamt_h / (float(h_row[7]) or 6.0)) * zeit_faktor
                         
                         summe_mieter += anteil
                         display_rows.append([name, f"{gesamt_h:.2f} €", d_key, f"{anteil:.2f} €"])
@@ -140,17 +125,19 @@ else:
                     c2.metric("Vorauszahlungen", f"{voraus_gesamt:.2f} €")
                     c3.metric("Saldo", f"{saldo:.2f} €", delta_color="inverse")
 
-                    if st.button("🖨️ PDF erstellen"):
+                    # BUTTON WIEDER DA (korrekt eingerückt)
+                    if st.button("🖨️ Abrechnungs-PDF erstellen", key="gen_pdf_btn"):
                         try:
                             m_stats = {"area": float(m_row[0]), "occupants": int(m_row[1])}
                             h_stats = {"name": str(h_row[0]), "street": str(h_row[1]), "city": str(h_row[2]), "iban": str(h_row[3]), "bank": str(h_row[4]), "total_area": float(h_row[5]), "total_occupants": int(h_row[6]), "total_units": int(h_row[7] or 6)}
                             pdf_path = generate_nebenkosten_pdf(f"{m_row[6]} {m_row[7]}", str(m_row[5]), z_raum, tage_mieter, pdf_rows, summe_mieter, voraus_gesamt, saldo, m_stats, h_stats)
                             with open(pdf_path, "rb") as f:
-                                st.download_button("📩 Download PDF", f, file_name=f"NK_{m_row[7]}_{jahr}.pdf")
+                                st.download_button("📩 Download PDF", f, file_name=f"Abrechnung_{m_row[7]}_{jahr}.pdf")
                         except Exception as e:
-                            st.error(f"PDF-Fehler: {e}")
+                            st.error(f"Fehler: {e}")
+
     except Exception as e:
-        st.error(f"Fehler: {e}")
+        st.error(f"Datenbankfehler: {e}")
     finally:
         cur.close()
         conn.close()
