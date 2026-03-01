@@ -33,7 +33,6 @@ if not conn:
 else:
     cur = conn.cursor()
     try:
-        # Mieter für die Auswahl laden
         cur.execute("SELECT id, first_name, last_name FROM tenants ORDER BY last_name")
         tenants_data = cur.fetchall()
         
@@ -72,24 +71,19 @@ else:
                         status = "✅ Bezahlt" if saldo >= -0.01 else "❌ Rückstand"
                         if not aktiv: status = "💤 Inaktiv"
                         
-                        history.append({
-                            "Monat": m_name, 
-                            "Soll (€)": f"{soll:.2f}", 
-                            "Ist (€)": f"{ist:.2f}", 
-                            "Saldo (€)": f"{saldo:.2f}", 
-                            "Status": status
-                        })
+                        history.append({"Monat": m_name, "Soll (€)": f"{soll:.2f}", "Ist (€)": f"{ist:.2f}", "Saldo (€)": f"{saldo:.2f}", "Status": status})
                         if aktiv: saldo_vortrag = saldo
 
                     st.table(pd.DataFrame(history))
 
-                    if st.button("🖨️ Zahlungsverlauf als PDF"):
+                    # Eindeutiger Key für den Button: key="btn_pay_pdf"
+                    if st.button("🖨️ Zahlungsverlauf als PDF", key="btn_pay_pdf"):
                         cur.execute("SELECT name, street, city, iban, bank_name FROM landlord_settings LIMIT 1")
                         h = cur.fetchone()
                         h_stats = {"name": h[0], "street": h[1], "city": h[2], "iban": h[3], "bank": h[4]}
                         path = generate_payment_history_pdf(f"{t_row[0]} {t_row[1]}", jahr, history, h_stats)
                         with open(path, "rb") as f:
-                            st.download_button("💾 PDF Download", f, file_name=os.path.basename(path))
+                            st.download_button("💾 PDF Download", f, file_name=os.path.basename(path), key="dl_pay_pdf")
 
             # --- TAB 2: NEBENKOSTENABRECHNUNG ---
             with tab2:
@@ -108,16 +102,15 @@ else:
                 m_row = cur.fetchone()
 
                 if h_row and m_row:
-                    # Zeitraum Logik: Wir nehmen das Mietdatum, aber begrenzen es auf das gewählte Jahr
+                    # ZEITRAUM BERECHNEN
                     m_start = max(m_row[2] or date(jahr,1,1), date(jahr,1,1))
                     m_ende = min(m_row[3] or date(jahr,12,31), date(jahr,12,31))
-                    
                     tage_mieter = (m_ende - m_start).days + 1
                     jahr_tage = 366 if (jahr % 4 == 0) else 365
                     zeit_faktor = tage_mieter / jahr_tage
 
-                    # --- ANZEIGE DES ZEITRAUMS ---
-                    st.info(f"📅 **Mietzeitraum in {jahr}:** {m_start.strftime('%d.%m.%Y')} bis {m_ende.strftime('%d.%m.%Y')} ({tage_mieter} Tage)")
+                    # Anzeige des Zeitraums in der UI
+                    st.info(f"📅 **Abrechnungszeitraum:** {m_start.strftime('%d.%m.%Y')} bis {m_ende.strftime('%d.%m.%Y')} ({tage_mieter} Tage)")
 
                     cur.execute("""
                         SELECT expense_type, amount, distribution_key, tenant_id 
@@ -129,11 +122,9 @@ else:
                     expenses = cur.fetchall()
                     
                     pdf_rows, display_rows, summe_mieter = [], [], 0.0
-                    
                     for exp in expenses:
                         name, gesamt_h, key, exp_t_id = exp[0], float(exp[1]), exp[2], exp[3]
                         anteil = 0.0
-                        
                         if exp_t_id is not None:
                             anteil = gesamt_h * zeit_faktor
                             d_key = "Direktzuordnung"
@@ -161,65 +152,23 @@ else:
                         c2.metric("Vorauszahlungen", f"{voraus_gesamt:.2f} €")
                         c3.metric("Saldo", f"{saldo:.2f} €", delta=f"{saldo:.2f} €", delta_color="inverse")
 
-                        if st.button("🖨️ Abrechnungs-PDF erstellen"):
+                        # Eindeutiger Key für den Abrechnungs-Button: key="btn_nk_pdf"
+                        if st.button("🖨️ Abrechnungs-PDF erstellen", key="btn_nk_pdf"):
                             try:
                                 m_stats = {"area": float(m_row[0]), "occupants": int(m_row[1])}
-                                h_stats = {
-                                    "name": str(h_row[0]), "street": str(h_row[1]), "city": str(h_row[2]), 
-                                    "iban": str(h_row[3]), "bank": str(h_row[4]), "total_area": float(h_row[5]), 
-                                    "total_occupants": int(h_row[6]), "total_units": int(h_row[7] or 6)
-                                }
-                                # Zeitraum für das PDF formatieren
+                                h_stats = {"name": str(h_row[0]), "street": str(h_row[1]), "city": str(h_row[2]), "iban": str(h_row[3]), "bank": str(h_row[4]), "total_area": float(h_row[5]), "total_occupants": int(h_row[6]), "total_units": int(h_row[7] or 6)}
                                 z_raum = f"{m_start.strftime('%d.%m.%Y')} - {m_ende.strftime('%d.%m.%Y')}"
                                 
-                                pdf_path = generate_nebenkosten_pdf(
-                                    f"{m_row[6]} {m_row[7]}", str(m_row[5]), z_raum, tage_mieter, 
-                                    pdf_rows, summe_mieter, voraus_gesamt, saldo, m_stats, h_stats
-                                )
-                                
+                                pdf_path = generate_nebenkosten_pdf(f"{m_row[6]} {m_row[7]}", str(m_row[5]), z_raum, tage_mieter, pdf_rows, summe_mieter, voraus_gesamt, saldo, m_stats, h_stats)
                                 with open(pdf_path, "rb") as f:
-                                    st.download_button("📩 Download Abrechnung", f, file_name=f"NK_{m_row[7]}_{jahr}.pdf")
-                            except Exception as e:
-                                st.error(f"PDF-Fehler: {e}")
-                    # Tabelle anzeigen
-                    if display_rows:
-                        st.table(pd.DataFrame(display_rows, columns=["Kostenart", "Gesamt Haus", "Verteilerschlüssel", "Anteil Mieter"]))
-                        
-                        # Vorauszahlungen (basierend auf Tagen)
-                        voraus_gesamt = float(m_row[4]) * (tage_mieter / (jahr_tage/12))
-                        saldo = summe_mieter - voraus_gesamt
-                        
-                        c1, c2, c3 = st.columns(3)
-                        c1.metric("Anteilige Kosten", f"{summe_mieter:.2f} €")
-                        c2.metric("Vorauszahlungen", f"{voraus_gesamt:.2f} €")
-                        c3.metric("Saldo", f"{saldo:.2f} €", delta=f"{saldo:.2f} €", delta_color="inverse")
-
-                        if st.button("🖨️ Abrechnungs-PDF erstellen"):
-                            try:
-                                m_stats = {"area": float(m_row[0]), "occupants": int(m_row[1])}
-                                h_stats = {
-                                    "name": str(h_row[0]), "street": str(h_row[1]), "city": str(h_row[2]), 
-                                    "iban": str(h_row[3]), "bank": str(h_row[4]), "total_area": float(h_row[5]), 
-                                    "total_occupants": int(h_row[6]), "total_units": int(h_row[7] or 6)
-                                }
-                                z_raum = f"{m_start.strftime('%d.%m.%Y')} - {m_ende.strftime('%d.%m.%Y')}"
-                                
-                                pdf_path = generate_nebenkosten_pdf(
-                                    f"{m_row[6]} {m_row[7]}", str(m_row[5]), z_raum, tage_mieter, 
-                                    pdf_rows, summe_mieter, voraus_gesamt, saldo, m_stats, h_stats
-                                )
-                                
-                                with open(pdf_path, "rb") as f:
-                                    st.download_button("📩 Download Abrechnung", f, file_name=f"NK_{m_row[7]}_{jahr}.pdf")
+                                    st.download_button("📩 Download Abrechnung", f, file_name=os.path.basename(pdf_path), key="dl_nk_pdf")
                             except Exception as e:
                                 st.error(f"PDF-Fehler: {e}")
                     else:
-                        st.warning(f"Keine Ausgaben für das Jahr {jahr} in der Datenbank gefunden.")
-                else:
-                    st.error("Stammdaten konnten nicht geladen werden. Bitte prüfen Sie die Vermieter-Einstellungen.")
+                        st.warning(f"Keine Ausgaben für {jahr} gefunden.")
 
     except Exception as e:
-        st.error(f"Ein Fehler ist aufgetreten: {e}")
+        st.error(f"Fehler: {e}")
     finally:
         cur.close()
         conn.close()
