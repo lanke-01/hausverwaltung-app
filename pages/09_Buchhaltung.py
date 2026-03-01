@@ -36,173 +36,165 @@ try:
 
     # Keywords laden
     cur.execute("SELECT keyword, tenant_id FROM tenant_keywords")
-    keywords = {row[0].lower(): row[1] for row in cur.fetchall()}
-
+    keywords_map = {row[0].lower(): row[1] for row in cur.fetchall()}
+    
     cur.close()
     conn.close()
 except Exception as e:
     st.error(f"Datenbankfehler: {e}")
-    st.stop()
 
-# --- UI TABS ---
-tab_import, tab_settings = st.tabs(["📥 CSV Import", "⚙️ Suchbegriffe verwalten"])
+tab_import, tab_settings = st.tabs(["📥 Bank-Import", "⚙️ Suchbegriffe verwalten"])
 
-# --- TAB: EINSTELLUNGEN ---
+# --- TAB: IMPORT ---
+with tab_import:
+    st.header("Bankumsätze (CSV) hochladen")
+    uploaded_file = st.file_uploader("CSV Datei wählen", type=["csv"])
+
+    if uploaded_file:
+        try:
+            # CSV einlesen (Passe Delimiter bei Bedarf an, z.B. ';' für deutsche Banken)
+            df = pd.read_csv(uploaded_file, sep=None, engine='python')
+            
+            # Spaltenzuordnung (Beispielhaft für viele Banken)
+            st.write("Vorschau der hochgeladenen Daten:")
+            st.dataframe(df.head(3))
+            
+            col_date = st.selectbox("Spalte für Datum", df.columns)
+            col_amount = st.selectbox("Spalte für Betrag", df.columns)
+            col_text = st.selectbox("Spalte für Verwendungszweck / Name", df.columns)
+
+            if st.button("Zuordnung starten"):
+                results = []
+                for _, row in df.iterrows():
+                    purpose = str(row[col_text]).lower()
+                    amount = str(row[col_amount]).replace(',', '.')
+                    try:
+                        amount_float = float(re.sub(r'[^\d.-]', '', amount))
+                    except:
+                        amount_float = 0.0
+                    
+                    # Logik: Nur Haben-Buchungen (Eingänge) beachten
+                    if amount_float <= 0:
+                        continue
+                    
+                    found_tenant = "Unbekannt"
+                    # Suche nach Keywords im Verwendungszweck
+                    for kw, t_id in keywords_map.items():
+                        if kw in purpose:
+                            found_tenant = id_to_name.get(t_id, "Unbekannt")
+                            break
+                    
+                    results.append({
+                        "Datum": row[col_date],
+                        "Betrag": amount_float,
+                        "Zweck": row[col_text],
+                        "Mieter": found_tenant
+                    })
+                
+                st.session_state['import_results'] = results
+                st.success("Analyse abgeschlossen!")
+
+            if 'import_results' in st.session_state:
+                res_df = pd.DataFrame(st.session_state['import_results'])
+                st.subheader("Vorschlag zur Verbuchung")
+                
+                # Filter für unbekannte
+                show_only_unknown = st.checkbox("Nur unbekannte Zahlungen anzeigen")
+                if show_only_unknown:
+                    res_df = res_df[res_df['Mieter'] == "Unbekannt"]
+                
+                st.data_editor(res_df, key="editor", use_container_width=True)
+
+                if st.button("✅ Alle erkannten Zahlungen speichern"):
+                    try:
+                        conn = get_conn()
+                        cur = conn.cursor()
+                        count = 0
+                        for row in st.session_state['import_results']:
+                            if row['Mieter'] != "Unbekannt":
+                                # Datumsformatierung
+                                try:
+                                    d_str = str(row['Datum'])
+                                    clean_date = datetime.now().date() # Fallback
+                                    if "." in d_str:
+                                        parts = d_str.split(".")
+                                        if len(parts[2]) == 2: # DD.MM.YY
+                                            clean_date = datetime.strptime(d_str, '%d.%m.%y').date()
+                                        else: # DD.MM.YYYY
+                                            clean_date = datetime.strptime(d_str, '%d.%m.%Y').date()
+                                except: pass
+                                
+                                cur.execute("""
+                                    INSERT INTO payments (tenant_id, amount, payment_date, note)
+                                    VALUES (%s, %s, %s, %s)
+                                """, (tenants[row['Mieter']], row['Betrag'], clean_date, f"Auto-Import: {row['Zweck'][:50]}"))
+                                count += 1
+                        conn.commit()
+                        cur.close()
+                        conn.close()
+                        st.success(f"{count} Zahlungen verbucht!")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"Fehler: {e}")
+
+        except Exception as e:
+            st.error(f"Datei-Fehler: {e}")
+
+# --- TAB: EINSTELLUNGEN (Keywords) ---
 with tab_settings:
     st.subheader("Suchbegriffe trainieren")
-    st.write("Ordne Wörter aus dem Verwendungszweck oder Namen fest einem Mieter zu.")
+    st.write("Hier kannst du Wörter festlegen, die automatisch einem Mieter zugeordnet werden.")
     
-    with st.form("add_keyword"):
+    with st.form("new_kw_form"):
         c1, c2 = st.columns(2)
-        new_word = c1.text_input("Suchbegriff (z.B. 'Miete OG' oder Teil des Nachnamens)")
+        new_word = c1.text_input("Suchwort (z.B. 'Miete OG', 'Kader', 'Al Masalmeh')")
         target_tenant = c2.selectbox("Zugehöriger Mieter", list(tenants.keys()))
-        if st.form_submit_button("Begriff speichern"):
+        if st.form_submit_button("Speichern"):
             if new_word:
                 try:
                     conn = get_conn()
                     cur = conn.cursor()
-                    cur.execute("""
-                        INSERT INTO tenant_keywords (tenant_id, keyword) 
-                        VALUES (%s, %s) 
-                        ON CONFLICT (keyword) DO NOTHING
-                    """, (tenants[target_tenant], new_word))
+                    cur.execute("INSERT INTO tenant_keywords (tenant_id, keyword) VALUES (%s, %s) ON CONFLICT (keyword) DO NOTHING", 
+                                (tenants[target_tenant], new_word))
                     conn.commit()
                     cur.close()
                     conn.close()
-                    st.success(f"'{new_word}' wird jetzt immer {target_tenant} zugeordnet.")
+                    st.success(f"'{new_word}' gespeichert.")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Fehler beim Speichern: {e}")
-            else:
-                st.warning("Bitte einen Begriff eingeben.")
+                    st.error(f"Fehler: {e}")
+    
+    st.divider()
+    
+    # --- LISTE DER BEGRIFFE ANZEIGEN & LÖSCHEN ---
+    st.subheader("Aktive Suchbegriffe")
+    try:
+        conn = get_conn()
+        df_kw = pd.read_sql_query("""
+            SELECT tk.id, tk.keyword as "Begriff", t.first_name || ' ' || t.last_name as "Mieter"
+            FROM tenant_keywords tk
+            JOIN tenants t ON tk.tenant_id = t.id
+            ORDER BY t.last_name, tk.keyword
+        """, conn)
+        conn.close()
 
-# --- TAB: IMPORT ---
-with tab_import:
-    st.info("Unterstützt Sparkassen-Format (Spalte: 'Beguenstigter/Zahlungspflichtiger')")
-    uploaded_file = st.file_uploader("Sparkassen CSV hochladen", type=["csv"])
-
-    if uploaded_file:
-        try:
-            # CSV einlesen mit Berücksichtigung von Sparkassen-Formaten
-            df = pd.read_csv(uploaded_file, sep=';', encoding='latin-1', skip_blank_lines=True)
+        if not df_kw.empty:
+            # Tabelle anzeigen
+            st.dataframe(df_kw[["Begriff", "Mieter"]], use_container_width=True)
             
-            # Spaltennamen säubern (Leerzeichen entfernen)
-            df.columns = [c.strip() for c in df.columns]
-            
-            # 1. Betrags-Spalte finden und konvertieren
-            amt_col = next((c for c in ['Betrag', 'Umsatz'] if c in df.columns), None)
-            if not amt_col:
-                st.error("Konnte Spalte für 'Betrag' oder 'Umsatz' nicht finden.")
-                st.stop()
-                
-            # Konvertierung von "1.200,50" zu Float
-            df['Betrag_Num'] = df[amt_col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).astype(float)
-            
-            # Nur Zahlungseingänge (positive Beträge)
-            df = df[df['Betrag_Num'] > 0]
-            
-            # 2. Relevante Spalten identifizieren (Speziell für Sparkasse angepasst)
-            payer_col = next((c for c in ['Beguenstigter/Zahlungspflichtiger', 'Begünstigter/Zahlungspflichtiger', 'Name Zahlungspflichtiger', 'Name'] if c in df.columns), None)
-            purpose_col = next((c for c in ['Verwendungszweck', 'VWZ'] if c in df.columns), 'Verwendungszweck')
-            date_col = next((c for c in ['Valutadatum', 'Buchungstag', 'Datum'] if c in df.columns), None)
-
-            if not payer_col:
-                st.warning(f"Spalte 'Beguenstigter/Zahlungspflichtiger' nicht gefunden. Verfügbare Spalten: {list(df.columns)}")
-                st.stop()
-
-            processed_data = []
-            for _, row in df.iterrows():
-                val_payer = str(row.get(payer_col, '')).strip()
-                val_purpose = str(row.get(purpose_col, '')).strip()
-                payer_lower = val_payer.lower()
-                purpose_lower = val_purpose.lower()
-                amount = row['Betrag_Num']
-                
-                # --- AUTOMATISCHE ZUORDNUNGSLOGIK ---
-                match_name = "Nicht erkannt"
-                
-                # Regel 1: Suche in trainierten Keywords
-                for kw, t_id in keywords.items():
-                    if kw in payer_lower or kw in purpose_lower:
-                        match_name = id_to_name.get(t_id, "Nicht erkannt")
-                        break
-                
-                # Regel 2: Suche nach exakten Mieter-Namen (Fall-back)
-                if match_name == "Nicht erkannt":
-                    for name in tenants.keys():
-                        if name.lower() in payer_lower or name.lower() in purpose_lower:
-                            match_name = name
-                            break
-                
-                processed_data.append({
-                    'Datum': str(row.get(date_col, '')),
-                    'Zahler': val_payer,
-                    'Zweck': val_purpose,
-                    'Betrag': amount,
-                    'Mieter': match_name
-                })
-
-            # Vorschau und manuelle Korrektur
-            st.subheader("Vorschau & Validierung")
-            edited_df = st.data_editor(
-                processed_data,
-                column_config={
-                    "Mieter": st.column_config.SelectboxColumn(
-                        "Zuweisung (Manuell anpassen falls nötig)", 
-                        options=["Nicht erkannt"] + list(tenants.keys()),
-                        width="medium"
-                    ),
-                    "Betrag": st.column_config.NumberColumn("Betrag (€)", format="%.2f €"),
-                    "Zahler": st.column_config.TextColumn("Zahler (aus CSV)", disabled=True),
-                    "Zweck": st.column_config.TextColumn("Verwendungszweck", disabled=True)
-                },
-                use_container_width=True,
-                key="accounting_editor"
-            )
-
-            # Verbuchen in die Datenbank
-            if st.button("🚀 Markierte Zahlungen verbuchen"):
-                try:
+            # Bereich zum Löschen
+            with st.expander("🗑️ Begriff löschen"):
+                del_word = st.selectbox("Welchen Begriff möchtest du entfernen?", df_kw["Begriff"].tolist())
+                if st.button("Ausgewählten Begriff löschen"):
                     conn = get_conn()
                     cur = conn.cursor()
-                    count = 0
-                    
-                    for row in edited_df:
-                        if row['Mieter'] in tenants:
-                            # Datumsformatierung
-                            d_str = str(row['Datum']).strip()
-                            try:
-                                # Verschiedene Formate probieren
-                                if "." in d_str:
-                                    parts = d_str.split(".")
-                                    if len(parts[2]) == 2: # DD.MM.YY
-                                        clean_date = datetime.strptime(d_str, '%d.%m.%y').date()
-                                    else: # DD.MM.YYYY
-                                        clean_date = datetime.strptime(d_str, '%d.%m.%Y').date()
-                                else:
-                                    clean_date = datetime.now().date()
-                            except:
-                                clean_date = datetime.now().date()
-                                
-                            cur.execute("""
-                                INSERT INTO payments (tenant_id, amount, payment_date, note)
-                                VALUES (%s, %s, %s, %s)
-                            """, (
-                                tenants[row['Mieter']], 
-                                row['Betrag'], 
-                                clean_date, 
-                                f"Auto-Import: {row['Zweck'][:50]}..."
-                            ))
-                            count += 1
-                    
+                    cur.execute("DELETE FROM tenant_keywords WHERE keyword = %s", (del_word,))
                     conn.commit()
                     cur.close()
                     conn.close()
-                    
-                    st.success(f"✅ {count} Zahlungen erfolgreich im System verbucht!")
-                    st.balloons()
-                except Exception as e:
-                    st.error(f"Fehler beim Verbuchen: {e}")
-                    
-        except Exception as e:
-            st.error(f"Fehler beim Verarbeiten der Datei: {e}")
+                    st.success(f"'{del_word}' wurde entfernt.")
+                    st.rerun()
+        else:
+            st.info("Noch keine Suchbegriffe vorhanden.")
+    except Exception as e:
+        st.error(f"Fehler beim Laden: {e}")
